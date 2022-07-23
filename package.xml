@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>apriltag_to_visual_odometry</name>
+  <version>0.0.0</version>
+  <description>Transform the tf from apriltag into visual odometry</description>
+  <maintainer email="martino.segattini@studenti.unipd.it">martino</maintainer>
+  <license>License Apache 2.0</license>
+
+  <depend>rclcpp</depend>
+  <depend>tf2_ros</depend>
+  <depend>geometry_msgs</depend>
+  <depend>px4_msgs</depend>
+  <depend>apriltag_msgs</depend>
+
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  # Install launch files.
+  install(DIRECTORY
+    launch
+    DESTINATION share/${PROJECT_NAME}/
+  )
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
