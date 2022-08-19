@@ -170,7 +170,7 @@ public:
         // Create subscription to tf
         subscription_ = this->create_subscription<tf2_msgs::msg::TFMessage>(
 
-            "/tf", 10, std::bind(&OdometryPublisher::tf_callback, this, _1));
+            "/tf_vio", 10, std::bind(&OdometryPublisher::tf_callback, this, _1));
 
         // Definition of the elementary quaternion camera to body
         quat_cam_to_body_x.setRPY(roll_cam_, 0, 0);
@@ -246,9 +246,6 @@ private:
     void tf_callback(tf2_msgs::msg::TFMessage::ConstSharedPtr tf_msg)
     {
 
-        // CHE È STA COSA? PARE INUTILE
-        std_msgs::msg::String apriltag_for_estimation_msg;
-
         // INIZIA NUOVO CODICE
 
         // std::cout << "Entra in tf_callback" << std::endl;
@@ -271,6 +268,16 @@ private:
                 for (size_t i = 0u; i < msg_in.transforms.size(); i++)
                 {
                     geometry_msgs::msg::TransformStamped transformStamped_in = msg_in.transforms[i];
+
+                    if (debug_)
+                    {
+                        std::cout << "-------------------------------------------------" << std::endl
+                                  << "Nuovo messaggio ricevuto, elenco dei quaternioni:" << std::endl
+                                  << "x: " << transformStamped_in.transform.rotation.x
+                                  << " y: " << transformStamped_in.transform.rotation.y
+                                  << " z: " << transformStamped_in.transform.rotation.z
+                                  << " w: " << transformStamped_in.transform.rotation.w << std::endl;
+                    }
 
                     int child_id_num = std::stoi(transformStamped_in.child_frame_id.substr(5, 4));
 
@@ -307,17 +314,17 @@ private:
 
                 t = msg_in.transforms[lower_msg_ID];
 
-                tf2::Transform trans(tf2::Quaternion(
-                                         t.transform.rotation.x,
-                                         t.transform.rotation.y,
-                                         t.transform.rotation.z,
-                                         t.transform.rotation.w),
-                                     tf2::Vector3(
-                                         t.transform.translation.x,
-                                         t.transform.translation.y,
-                                         t.transform.translation.z));
+                // tf2::Transform trans(tf2::Quaternion(
+                //                          t.transform.rotation.x,
+                //                          t.transform.rotation.y,
+                //                          t.transform.rotation.z,
+                //                          t.transform.rotation.w),
+                //                      tf2::Vector3(
+                //                          t.transform.translation.x,
+                //                          t.transform.translation.y,
+                //                          t.transform.translation.z));
 
-                trans = trans.inverse();
+                // trans = trans.inverse();
 
                 if (debug_)
                 {
@@ -343,12 +350,22 @@ private:
                 else
                 {
 
-                    // Do some maths to get the correctr transform from the world reference system
-                    camera_origin[0] = trans.getOrigin().x();
-                    camera_origin[1] = trans.getOrigin().y();
-                    camera_origin[2] = trans.getOrigin().z();
+                    // Do some maths to get the correct transform from the world reference system
 
-                    quat_cam = trans.getRotation();
+                    // camera_origin[0] = trans.getOrigin().x();
+                    // camera_origin[1] = trans.getOrigin().y();
+                    // camera_origin[2] = trans.getOrigin().z();
+
+                    // quat_cam = trans.getRotation();
+
+                    camera_origin[0] = t.transform.translation.x;
+                    camera_origin[1] = t.transform.translation.y;
+                    camera_origin[2] = t.transform.translation.z;
+
+                    quat_cam[0] = t.transform.rotation.x;
+                    quat_cam[1] = t.transform.rotation.y;
+                    quat_cam[2] = t.transform.rotation.z;
+                    quat_cam[3] = t.transform.rotation.w;
 
                     quat_body = quat_cam * quat_cam_to_body_x * quat_cam_to_body_y * quat_cam_to_body_z;
 
@@ -384,7 +401,7 @@ private:
 
                     if (debug_)
                     {
-                        std::cout << "POSE_NEW" << std::endl;
+                        std::cout << "POSE_NEW_29-07-2022" << std::endl;
                         std::cout << "\t translations: [ x: " << msg.x << ", y: " << msg.y << ", z: " << msg.z << " ]" << std::endl;
                         std::cout << "\t quaternion: [ w: " << msg.q[0] << ", ( x: " << msg.q[1] << ", y: " << msg.q[2] << ", z: " << msg.q[3] << ") ]" << std::endl
                                   << std::endl;
