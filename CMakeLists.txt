@@ -23,6 +23,7 @@ find_package(tf2_ros REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(px4_msgs REQUIRED)
 find_package(apriltag_msgs REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 #find_package(apriltag REQUIRED)
 
@@ -35,18 +36,19 @@ ament_target_dependencies(
     tf2_ros
 )
 
-# add_executable(apriltag_to_visual_odometry src/no_buff_apriltag_to_visual_odometry.cpp)
-# ament_target_dependencies(
-#         no_buff_apriltag_to_visual_odometry
-#         geometry_msgs
-#         px4_msgs
-#         rclcpp
-#         tf2_ros
-# )
+add_executable(new_apriltag_to_visual_odometry src/new_apriltag_to_visual_odometry.cpp)
+ament_target_dependencies(
+        new_apriltag_to_visual_odometry
+        geometry_msgs
+        px4_msgs
+        rclcpp
+        tf2_ros
+        Eigen3
+)
 
 install(TARGETS
    apriltag_to_visual_odometry
-  #  no_buff_apriltag_to_visual_odometry
+   new_apriltag_to_visual_odometry
    DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY config/ DESTINATION share/${PROJECT_NAME}/config)
