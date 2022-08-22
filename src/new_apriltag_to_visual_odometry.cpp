@@ -19,6 +19,8 @@
 #include <geometry_msgs/msg/twist.hpp>
 #include <tf2/exceptions.h>
 
+#include <eigen3/Eigen/Dense>
+
 using std::placeholders::_1;
 using namespace std::chrono;
 using namespace std::chrono_literals;
@@ -76,6 +78,10 @@ public:
         std::vector<double> tags_locations_L = declare_parameter<std::vector<double>>("tags_locations_L", {0.0, 0.0});
         std::vector<double> tags_locations_M = declare_parameter<std::vector<double>>("tags_locations_M", {0.0, 0.0});
         std::vector<double> tags_locations_S = declare_parameter<std::vector<double>>("tags_locations_S", {0.0, 0.0});
+
+        // weight to apply from YAML file
+        // frame_weight = declare_parameter<std::vector<int>>("frame_weight", {1,4,16,64});
+        frame_weight = {1, 4, 16, 64};
 
         // To publish static transforms once at startup
         if (graphics_on_)
@@ -181,6 +187,7 @@ public:
 
         // Publish the transformation considering camera offset and rotations relative to frame
         this->make_static_transforms(drone_frame_estimated_, fromFrameRel_, offset_body_camera_vect_, quat_body_to_cam);
+
     }
 
 private:
@@ -243,6 +250,71 @@ private:
         tf_ekf_drone_broadcaster_->sendTransform(tf_ekf_drone);
     }
 
+    int get_weight(int frame_id)
+    {
+        if (frame_id <= 99)
+        {
+            return frame_weight[3];
+        }
+        else if (frame_id >= 100 && frame_id <= 399)
+        {
+            return frame_weight[2];
+        }
+        else if (frame_id >= 400 && frame_id <= 999)
+        {
+            return frame_weight[1];
+        }
+        else
+        {
+            return frame_weight[0];
+        }
+    }
+
+    void print_quaternion(geometry_msgs::msg::TransformStamped ts)
+    {
+        tf2::Quaternion q(
+            ts.transform.rotation.x,
+            ts.transform.rotation.y,
+            ts.transform.rotation.z,
+            ts.transform.rotation.w);
+
+        std::cout << "x: " << ts.transform.rotation.x
+                  << " y: " << ts.transform.rotation.y
+                  << " z: " << ts.transform.rotation.z
+                  << " w: " << ts.transform.rotation.w
+                  << " axis: " << q.getAxis()[0] << " " << q.getAxis()[1] << " " << q.getAxis()[2]
+                  << " angle: " << q.getAngle()
+                  << " " << ts.child_frame_id << std::endl;
+    }
+
+    tf2::Vector3 get_offset(int frame_id)
+    {
+        tf2::Vector3 offset_home_to_apriltag;
+        int location_index = 0;
+        if (frame_id <= 99)
+        {
+            location_index = frame_id;
+            offset_home_to_apriltag = {tags_locations_XL_[location_index][0], tags_locations_XL_[location_index][1], tags_locations_XL_[location_index][2]};
+        }
+        else if (frame_id >= 100 && frame_id <= 399)
+        {
+            location_index = frame_id - 100;
+            offset_home_to_apriltag = {tags_locations_L_[location_index][0], tags_locations_L_[location_index][1], tags_locations_L_[location_index][2]};
+        }
+        else if (frame_id >= 400 && frame_id <= 999)
+        {
+            location_index = frame_id - 400;
+            offset_home_to_apriltag = {tags_locations_M_[location_index][0], tags_locations_M_[location_index][1], tags_locations_M_[location_index][2]};
+        }
+        else
+        {
+            location_index = frame_id - 1000;
+            offset_home_to_apriltag = {tags_locations_S_[location_index][0], tags_locations_S_[location_index][1], tags_locations_S_[location_index][2]};
+        }
+
+        return offset_home_to_apriltag;
+    }
+
     void tf_callback(tf2_msgs::msg::TFMessage::ConstSharedPtr tf_msg)
     {
         // std::cout << "Entra in tf_callback" << std::endl;
@@ -251,198 +323,215 @@ private:
 
         if (msg_in.transforms.size() != 0)
         {
-                int lower_frame_ID = 9999;
-                int lower_msg_ID = 0;
+            int lower_frame_ID = 9999;
+            int lower_msg_ID = 0;
+
+            // vector of tuple: (x y z w weight frame_id)
+            std::vector<std::tuple<double, double, double, double, int, int>> tuple_in;
+
+            if (debug_)
+            {
+                std::cout << "-------------------------------------------------" << std::endl
+                          << "Nuovo messaggio ricevuto, elenco dei quaternioni:" << std::endl;
+            }
+
+            // for every transform in the message received
+            for (size_t i = 0u; i < msg_in.transforms.size(); i++)
+            {
+                geometry_msgs::msg::TransformStamped ts_in = msg_in.transforms[i];
+                int child_id_num = std::stoi(ts_in.child_frame_id.substr(5, 4));
 
                 if (debug_)
+                    print_quaternion(ts_in);
+
+                // push back in the tuple vector
+                tuple_in.push_back(std::make_tuple(
+                    ts_in.transform.rotation.x,
+                    ts_in.transform.rotation.y,
+                    ts_in.transform.rotation.z,
+                    ts_in.transform.rotation.w,
+                    get_weight(child_id_num),
+                    child_id_num));
+
+                // save lower frame number and index
+                if (child_id_num < lower_frame_ID)
                 {
-                    std::cout << "-------------------------------------------------" << std::endl
-                              << "Nuovo messaggio ricevuto, elenco dei quaternioni:" << std::endl;
+                    lower_frame_ID = child_id_num;
+                    lower_msg_ID = i;
                 }
-                // for every transform in the message received
-                for (size_t i = 0u; i < msg_in.transforms.size(); i++)
-                {
-                    geometry_msgs::msg::TransformStamped transformStamped_in = msg_in.transforms[i];
-                    
+            }
 
-                    if (debug_)
-                    {
-                        tf2::Quaternion quat_deb(
-                        transformStamped_in.transform.rotation.x,
-                        transformStamped_in.transform.rotation.y,
-                        transformStamped_in.transform.rotation.z,
-                        transformStamped_in.transform.rotation.w);
-
-                        std::cout << "x: " << transformStamped_in.transform.rotation.x
-                                  << " y: " << transformStamped_in.transform.rotation.y
-                                  << " z: " << transformStamped_in.transform.rotation.z
-                                  << " w: " << transformStamped_in.transform.rotation.w
-                                  << " axis: " << quat_deb.getAxis()[0] << " " << quat_deb.getAxis()[1] << " " << quat_deb.getAxis()[2]
-                                  << " angle: " << quat_deb.getAngle()
-                                  << " " << transformStamped_in.child_frame_id << std::endl;
-                    }
-
-                    // compute median of quaternions
-
-                    int child_id_num = std::stoi(transformStamped_in.child_frame_id.substr(5, 4));
-
-                    // save lower frame number and index
-                    if (child_id_num < lower_frame_ID)
-                    {
-                        lower_frame_ID = child_id_num;
-                        lower_msg_ID = i;
-                    }
-                }
-
-                if (debug_)
+            if (debug_)
                 std::cout << "-------------------------------------------------" << std::endl;
 
-                // Calculate offset
-                int location_index = 0;
-                if (lower_frame_ID <= 99)
-                {
-                    location_index = lower_frame_ID;
-                    offset_home_to_apriltag = {tags_locations_XL_[location_index][0], tags_locations_XL_[location_index][1], tags_locations_XL_[location_index][2]};
-                }
-                else if (lower_frame_ID >= 100 && lower_frame_ID <= 399)
-                {
-                    location_index = lower_frame_ID - 100;
-                    offset_home_to_apriltag = {tags_locations_L_[location_index][0], tags_locations_L_[location_index][1], tags_locations_L_[location_index][2]};
-                }
-                else if (lower_frame_ID >= 400 && lower_frame_ID <= 999)
-                {
-                    location_index = lower_frame_ID - 400;
-                    offset_home_to_apriltag = {tags_locations_M_[location_index][0], tags_locations_M_[location_index][1], tags_locations_M_[location_index][2]};
-                }
-                else if (lower_frame_ID >= 1000)
-                {
-                    location_index = lower_frame_ID - 1000;
-                    offset_home_to_apriltag = {tags_locations_S_[location_index][0], tags_locations_S_[location_index][1], tags_locations_S_[location_index][2]};
-                }
+            // Sort by the first element x
+            std::sort(tuple_in.begin(), tuple_in.end());
 
-                t = msg_in.transforms[lower_msg_ID];
+            if (debug_)
+            {
+                std::cout << "Sorted Vector of Tuple on basis"
+                             " of first element of tuple:\n";
+                for (int i = 0; i < static_cast<int>(tuple_in.size()); i++)
+                    std::cout << std::get<0>(tuple_in[i]) << " "
+                              << std::get<1>(tuple_in[i]) << " "
+                              << std::get<2>(tuple_in[i]) << " "
+                              << std::get<3>(tuple_in[i]) << " "
+                              << std::get<4>(tuple_in[i]) << " "
+                              << std::get<5>(tuple_in[i]) << std::endl;
+            }
 
-                // Compute the inverse is now done in apriltag_ros
-                // tf2::Transform trans(tf2::Quaternion(
-                //                          t.transform.rotation.x,
-                //                          t.transform.rotation.y,
-                //                          t.transform.rotation.z,
-                //                          t.transform.rotation.w),
-                //                      tf2::Vector3(
-                //                          t.transform.translation.x,
-                //                          t.transform.translation.y,
-                //                          t.transform.translation.z));
+            // Compute the weighted median and eraser the outliers
+            int sum = 0;
+            int all_weight = 0;
+            int N = static_cast<int>(tuple_in.size());
 
-                // trans = trans.inverse();
+            for (int i = 0; i < N; i++)
+            {
+                all_weight += std::get<4>(tuple_in[i]);
+            }
+
+            for (int i = 0; i < N; i++)
+            {
+                sum += std::get<4>(tuple_in[i]);
+                if ((sum < all_weight / 4) || (sum > all_weight * 3 / 4))
+                    tuple_in.erase(tuple_in.begin() + i);
+            }
+
+            if (debug_)
+            {
+                std::cout << "Sorted Vector of Tuple after deleting the outliers: \n";
+                for (int i = 0; i < static_cast<int>(tuple_in.size()); i++)
+                    std::cout << std::get<0>(tuple_in[i]) << " "
+                              << std::get<1>(tuple_in[i]) << " "
+                              << std::get<2>(tuple_in[i]) << " "
+                              << std::get<3>(tuple_in[i]) << " "
+                              << std::get<4>(tuple_in[i]) << " "
+                              << std::get<5>(tuple_in[i]) << std::endl;
+            }
+
+            t = msg_in.transforms[lower_msg_ID];
+
+
+
+            // Compute the inverse is now done in apriltag_ros
+            // tf2::Transform trans(tf2::Quaternion(
+            //                          t.transform.rotation.x,
+            //                          t.transform.rotation.y,
+            //                          t.transform.rotation.z,
+            //                          t.transform.rotation.w),
+            //                      tf2::Vector3(
+            //                          t.transform.translation.x,
+            //                          t.transform.translation.y,
+            //                          t.transform.translation.z));
+
+            // trans = trans.inverse();
+
+            // Do some maths to get the correct transform from the world reference system
+
+            // camera_origin[0] = trans.getOrigin().x();
+            // camera_origin[1] = trans.getOrigin().y();
+            // camera_origin[2] = trans.getOrigin().z();
+
+            // quat_cam = trans.getRotation();
+
+            camera_origin[0] = t.transform.translation.x;
+            camera_origin[1] = t.transform.translation.y;
+            camera_origin[2] = t.transform.translation.z;
+
+            quat_cam[0] = t.transform.rotation.x;
+            quat_cam[1] = t.transform.rotation.y;
+            quat_cam[2] = t.transform.rotation.z;
+            quat_cam[3] = t.transform.rotation.w;
+
+            quat_body = quat_cam * quat_cam_to_body_x * quat_cam_to_body_y * quat_cam_to_body_z;
+
+            body_origin = quatRotate(quat_cam, offset_camera_body_vect_) + camera_origin + get_offset(lower_frame_ID);
+
+            if (debug_)
+            {
+                std::cout << "t: s = " << t.header.stamp.sec << ", ns = " << t.header.stamp.nanosec << ", frame_id = " << t.header.frame_id
+                          << ", child_frame_id = " << t.child_frame_id << std::endl
+                          << "transform: x = " << t.transform.translation.x
+                          << ", y = " << t.transform.translation.y << ", z = " << t.transform.translation.z << std::endl
+                          << std::endl
+                          << std::endl;
+            }
+
+            // calculate the delta time between PX4 and t messages for synchronizations
+            if (time_start == 0 || t.header.stamp.sec == 0)
+            {
+                // update time_start from timestamps_ (SYNCED)
+                time_start = static_cast<u_int64_t>(timestamp_.load());
+                std::cout << "timestamp " << time_start << std::endl;
+                delta_time = time_start - static_cast<u_int64_t>(t.header.stamp.sec * 1000000 + t.header.stamp.nanosec / 1000);
+                RCLCPP_INFO(this->get_logger(), "Time start at time: %d and the delta time for synchronization is: %d", time_start, delta_time);
+            }
+            else
+            {
+
+                // Generate the message
+                msg.timestamp = time_start; // time since system start (microseconds)
+                msg.timestamp_sample = t.header.stamp.sec * 1000000 + t.header.stamp.nanosec / 1000 + delta_time;
+                msg.local_frame = 0; // LOCAL_FRAME_NED=0         # NED earth-fixed frame
+                // msg.local_frame = 1;	//FRD earth-fixed frame, arbitrary heading reference
+                msg.x = body_origin.getX();
+                msg.y = body_origin.getY();
+                msg.z = body_origin.getZ();
+
+                // VehicleVisualOdometry msg has quaternion defined like: q{w, x, y, z} = {scalar, vect(3)}
+                // tf2::Quaternion is defined like: q{x, y, z, w} = {vect(3), scalar}
+                msg.q.at(0) = quat_body[3];
+                msg.q.at(1) = quat_body[0];
+                msg.q.at(2) = quat_body[1];
+                msg.q.at(3) = quat_body[2];
+                msg.q_offset.at(0) = NAN;
+                msg.pose_covariance.at(0) = NAN;
+                msg.pose_covariance.at(15) = NAN;
+
+                msg.velocity_frame = 0;
+                msg.vx = NAN;
+                msg.vy = NAN;
+                msg.vz = NAN;
+                msg.rollspeed = NAN;
+                msg.pitchspeed = NAN;
+                msg.yawspeed = NAN;
+                msg.velocity_covariance.at(0) = NAN;
+                msg.velocity_covariance.at(15) = NAN;
 
                 if (debug_)
                 {
-                    std::cout << "t: s = " << t.header.stamp.sec << ", ns = " << t.header.stamp.nanosec << ", frame_id = " << t.header.frame_id
-                              << ", child_frame_id = " << t.child_frame_id << std::endl
-                              << "transform: x = " << t.transform.translation.x
-                              << ", y = " << t.transform.translation.y << ", z = " << t.transform.translation.z << std::endl
-                              << std::endl
+                    std::cout << "POSE 19-08-2022" << std::endl;
+                    std::cout << "\t translations: [ x: " << msg.x << ", y: " << msg.y << ", z: " << msg.z << " ]" << std::endl;
+                    std::cout << "\t quaternion: [ w: " << msg.q[0] << ", ( x: " << msg.q[1] << ", y: " << msg.q[2] << ", z: " << msg.q[3] << ") ]" << std::endl
                               << std::endl;
                 }
-
-                // FINE NUOVO CODICE
-
-                // calculate the delta time between PX4 and t messages for synchronizations
-                if (time_start == 0 || t.header.stamp.sec == 0)
+                if (graphics_on_)
                 {
-                    // update time_start from timestamps_ (SYNCED)
-                    time_start = static_cast<u_int64_t>(timestamp_.load());
-                    std::cout << "timestamp " << time_start << std::endl;
-                    delta_time = time_start - static_cast<u_int64_t>(t.header.stamp.sec * 1000000 + t.header.stamp.nanosec / 1000);
-                    RCLCPP_INFO(this->get_logger(), "Time start at time: %d and the delta time for synchronization is: %d", time_start, delta_time);
-                }
-                else
-                {
+                    rclcpp::Time now = this->get_clock()->now();
+                    geometry_msgs::msg::TransformStamped tf_drone;
 
-                    // Do some maths to get the correct transform from the world reference system
+                    tf_drone.header.stamp = now;
+                    tf_drone.header.frame_id = home_map_frame_;
+                    tf_drone.child_frame_id = drone_frame_estimated_;
 
-                    // camera_origin[0] = trans.getOrigin().x();
-                    // camera_origin[1] = trans.getOrigin().y();
-                    // camera_origin[2] = trans.getOrigin().z();
+                    tf_drone.transform.translation.x = msg.x;
+                    tf_drone.transform.translation.y = msg.y;
+                    tf_drone.transform.translation.z = msg.z;
 
-                    // quat_cam = trans.getRotation();
-
-                    camera_origin[0] = t.transform.translation.x;
-                    camera_origin[1] = t.transform.translation.y;
-                    camera_origin[2] = t.transform.translation.z;
-
-                    quat_cam[0] = t.transform.rotation.x;
-                    quat_cam[1] = t.transform.rotation.y;
-                    quat_cam[2] = t.transform.rotation.z;
-                    quat_cam[3] = t.transform.rotation.w;
-
-                    quat_body = quat_cam * quat_cam_to_body_x * quat_cam_to_body_y * quat_cam_to_body_z;
-
-                    body_origin = quatRotate(quat_cam, offset_camera_body_vect_) + camera_origin + offset_home_to_apriltag;
-
-                    msg.timestamp = time_start; // time since system start (microseconds)
-                    msg.timestamp_sample = t.header.stamp.sec * 1000000 + t.header.stamp.nanosec / 1000 + delta_time;
-                    msg.local_frame = 0; // LOCAL_FRAME_NED=0         # NED earth-fixed frame
-                    // msg.local_frame = 1;	//FRD earth-fixed frame, arbitrary heading reference
-                    msg.x = body_origin.getX();
-                    msg.y = body_origin.getY();
-                    msg.z = body_origin.getZ();
-
-                    // VehicleVisualOdometry msg has quaternion defined like: q{w, x, y, z} = {scalar, vect(3)}
+                    // VehicleOdometry msg has quaternion defined like: q{w, x, y, z} = {scalar, vect(3)}
                     // tf2::Quaternion is defined like: q{x, y, z, w} = {vect(3), scalar}
-                    msg.q.at(0) = quat_body[3];
-                    msg.q.at(1) = quat_body[0];
-                    msg.q.at(2) = quat_body[1];
-                    msg.q.at(3) = quat_body[2];
-                    msg.q_offset.at(0) = NAN;
-                    msg.pose_covariance.at(0) = NAN;
-                    msg.pose_covariance.at(15) = NAN;
+                    tf2::Quaternion quat{msg.q[1], msg.q[2], msg.q[3], msg.q[0]};
+                    tf_drone.transform.rotation.x = quat.getX();
+                    tf_drone.transform.rotation.y = quat.getY();
+                    tf_drone.transform.rotation.z = quat.getZ();
+                    tf_drone.transform.rotation.w = quat.getW();
 
-                    msg.velocity_frame = 0;
-                    msg.vx = NAN;
-                    msg.vy = NAN;
-                    msg.vz = NAN;
-                    msg.rollspeed = NAN;
-                    msg.pitchspeed = NAN;
-                    msg.yawspeed = NAN;
-                    msg.velocity_covariance.at(0) = NAN;
-                    msg.velocity_covariance.at(15) = NAN;
+                    // Send the transformation
+                    tf_drone_broadcaster_->sendTransform(tf_drone);
+                }
 
-                    if (debug_)
-                    {
-                        std::cout << "POSE 19-08-2022" << std::endl;
-                        std::cout << "\t translations: [ x: " << msg.x << ", y: " << msg.y << ", z: " << msg.z << " ]" << std::endl;
-                        std::cout << "\t quaternion: [ w: " << msg.q[0] << ", ( x: " << msg.q[1] << ", y: " << msg.q[2] << ", z: " << msg.q[3] << ") ]" << std::endl
-                                  << std::endl;
-                    }
-                    if (graphics_on_)
-                    {
-                        rclcpp::Time now = this->get_clock()->now();
-                        geometry_msgs::msg::TransformStamped tf_drone;
-
-                        tf_drone.header.stamp = now;
-                        tf_drone.header.frame_id = home_map_frame_;
-                        tf_drone.child_frame_id = drone_frame_estimated_;
-
-                        tf_drone.transform.translation.x = msg.x;
-                        tf_drone.transform.translation.y = msg.y;
-                        tf_drone.transform.translation.z = msg.z;
-
-                        // VehicleOdometry msg has quaternion defined like: q{w, x, y, z} = {scalar, vect(3)}
-                        // tf2::Quaternion is defined like: q{x, y, z, w} = {vect(3), scalar}
-                        tf2::Quaternion quat{msg.q[1], msg.q[2], msg.q[3], msg.q[0]};
-                        tf_drone.transform.rotation.x = quat.getX();
-                        tf_drone.transform.rotation.y = quat.getY();
-                        tf_drone.transform.rotation.z = quat.getZ();
-                        tf_drone.transform.rotation.w = quat.getW();
-
-                        // Send the transformation
-                        tf_drone_broadcaster_->sendTransform(tf_drone);
-                    }
-
-                    // Publish the VehicleVisualOdometry
-                    publisher_->publish(msg);
-                
+                // Publish the VehicleVisualOdometry
+                publisher_->publish(msg);
             }
         }
     }
@@ -476,6 +565,7 @@ private:
     tf2::Vector3 offset_camera_body_vect_; //[m]
     tf2::Vector3 offset_body_camera_vect_; //[m]
     std::vector<int64_t> tag_ids_;
+    std::vector<int> frame_weight;
 
     std::vector<tf2::Vector3> tags_locations_XL_;
     std::vector<tf2::Vector3> tags_locations_L_;
@@ -488,7 +578,7 @@ private:
     tf2::Quaternion quat_cam_to_body_x, quat_cam_to_body_y, quat_cam_to_body_z;
     tf2::Quaternion quat_body; // from apriltag-frame to body-frame
     tf2::Quaternion quat_cam;  // from apriltag-frame to camera-frame
-    tf2::Vector3 camera_origin, body_origin, offset_home_to_apriltag;
+    tf2::Vector3 camera_origin, body_origin;
 };
 
 int main(int argc, char *argv[])
