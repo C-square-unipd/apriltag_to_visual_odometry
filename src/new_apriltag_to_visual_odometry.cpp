@@ -245,39 +245,44 @@ private:
 
     void tf_callback(tf2_msgs::msg::TFMessage::ConstSharedPtr tf_msg)
     {
-
-        // INIZIA NUOVO CODICE
-
         // std::cout << "Entra in tf_callback" << std::endl;
 
         const tf2_msgs::msg::TFMessage &msg_in = *tf_msg;
 
         if (msg_in.transforms.size() != 0)
         {
-            std::string child_id_short_in = msg_in.transforms[0].child_frame_id.substr(0, 5);
-
-            // std::cout << "Primi 5 caratteri di child id: " << child_id_short_in << std::endl;
-
-            if (child_id_short_in == "frame")
-            {
-                // std::cout << "Nuovo messaggio /tf, nome stringa uguale" << std::endl;
                 int lower_frame_ID = 9999;
                 int lower_msg_ID = 0;
 
+                if (debug_)
+                {
+                    std::cout << "-------------------------------------------------" << std::endl
+                              << "Nuovo messaggio ricevuto, elenco dei quaternioni:" << std::endl;
+                }
                 // for every transform in the message received
                 for (size_t i = 0u; i < msg_in.transforms.size(); i++)
                 {
                     geometry_msgs::msg::TransformStamped transformStamped_in = msg_in.transforms[i];
+                    
 
                     if (debug_)
                     {
-                        std::cout << "-------------------------------------------------" << std::endl
-                                  << "Nuovo messaggio ricevuto, elenco dei quaternioni:" << std::endl
-                                  << "x: " << transformStamped_in.transform.rotation.x
+                        tf2::Quaternion quat_deb(
+                        transformStamped_in.transform.rotation.x,
+                        transformStamped_in.transform.rotation.y,
+                        transformStamped_in.transform.rotation.z,
+                        transformStamped_in.transform.rotation.w);
+
+                        std::cout << "x: " << transformStamped_in.transform.rotation.x
                                   << " y: " << transformStamped_in.transform.rotation.y
                                   << " z: " << transformStamped_in.transform.rotation.z
-                                  << " w: " << transformStamped_in.transform.rotation.w << std::endl;
+                                  << " w: " << transformStamped_in.transform.rotation.w
+                                  << " axis: " << quat_deb.getAxis()[0] << " " << quat_deb.getAxis()[1] << " " << quat_deb.getAxis()[2]
+                                  << " angle: " << quat_deb.getAngle()
+                                  << " " << transformStamped_in.child_frame_id << std::endl;
                     }
+
+                    // compute median of quaternions
 
                     int child_id_num = std::stoi(transformStamped_in.child_frame_id.substr(5, 4));
 
@@ -288,6 +293,9 @@ private:
                         lower_msg_ID = i;
                     }
                 }
+
+                if (debug_)
+                std::cout << "-------------------------------------------------" << std::endl;
 
                 // Calculate offset
                 int location_index = 0;
@@ -314,6 +322,7 @@ private:
 
                 t = msg_in.transforms[lower_msg_ID];
 
+                // Compute the inverse is now done in apriltag_ros
                 // tf2::Transform trans(tf2::Quaternion(
                 //                          t.transform.rotation.x,
                 //                          t.transform.rotation.y,
@@ -401,7 +410,7 @@ private:
 
                     if (debug_)
                     {
-                        std::cout << "POSE_NEW_29-07-2022" << std::endl;
+                        std::cout << "POSE 19-08-2022" << std::endl;
                         std::cout << "\t translations: [ x: " << msg.x << ", y: " << msg.y << ", z: " << msg.z << " ]" << std::endl;
                         std::cout << "\t quaternion: [ w: " << msg.q[0] << ", ( x: " << msg.q[1] << ", y: " << msg.q[2] << ", z: " << msg.q[3] << ") ]" << std::endl
                                   << std::endl;
@@ -433,7 +442,7 @@ private:
 
                     // Publish the VehicleVisualOdometry
                     publisher_->publish(msg);
-                }
+                
             }
         }
     }
