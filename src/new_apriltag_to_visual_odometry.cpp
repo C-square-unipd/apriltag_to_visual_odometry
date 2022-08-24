@@ -315,6 +315,71 @@ private:
         return offset_home_to_apriltag;
     }
 
+    tf2::Quaternion quaternionAverage(std::vector<std::tuple<double, double, double, double, int, int>> quaternions)
+{
+
+	// first build a 4x4 matrix which is the elementwise sum of the product of each quaternion with itself
+	Eigen::Matrix4f A = Eigen::Matrix4f::Zero();
+    Eigen::Vector4f q_i = Eigen::Vector4f::Zero();
+    int w_i = 0;
+    int w_sum = 0;
+    int quat_size = static_cast<int>(quaternions.size());
+
+	for (int i=0; i<quat_size; i++)
+    {
+        q_i(0) = std::get<0>(quaternions[i]);
+        q_i(1) = std::get<1>(quaternions[i]);
+        q_i(2) = std::get<2>(quaternions[i]);
+        q_i(3) = std::get<3>(quaternions[i]);
+        w_i = std::get<4>(quaternions[i]);
+		A += w_i * q_i * q_i.transpose();
+        w_sum += w_i;
+    }
+
+	// normalise with the sum of the weights
+	A /= w_sum;
+
+	// // Compute the SVD of this 4x4 matrix
+	// Eigen::JacobiSVD<Eigen::MatrixXf> svd(A, Eigen::ComputeThinU | Eigen::ComputeThinV);
+
+	// Eigen::VectorXf singularValues = svd.singularValues();
+	// Eigen::MatrixXf U = svd.matrixU();
+
+    // Calculate eigenvector and eigenvalues
+    Eigen::EigenSolver<Eigen::Matrix4f> es(A);
+    Eigen::VectorXf eigenValues = es.eigenvalues().real();
+    Eigen::MatrixXf eigenVectors = es.eigenvectors().real();
+
+
+	// find the eigen vector corresponding to the largest eigen value
+	int largestEigenValueIndex;
+	float largestEigenValue;
+	bool first = true;
+
+	for (int i=0; i<eigenValues.rows(); ++i)
+	{
+		if (first)
+		{
+			largestEigenValue = eigenValues(i);
+			largestEigenValueIndex = i;
+			first = false;
+		}
+		else if (eigenValues(i) > largestEigenValue)
+		{
+			largestEigenValue = eigenValues(i);
+			largestEigenValueIndex = i;
+		}
+	}
+
+    tf2::Quaternion average(
+       eigenVectors(0, largestEigenValueIndex),
+       eigenVectors(1, largestEigenValueIndex),
+       eigenVectors(2, largestEigenValueIndex),
+       eigenVectors(3, largestEigenValueIndex));     
+
+	return average;
+}
+
     void tf_callback(tf2_msgs::msg::TFMessage::ConstSharedPtr tf_msg)
     {
         // std::cout << "Entra in tf_callback" << std::endl;
@@ -409,7 +474,14 @@ private:
                               << std::get<5>(tuple_in[i]) << std::endl;
             }
 
-            t = msg_in.transforms[lower_msg_ID];
+            // Average quaternions
+            tf2::Quaternion quat_average = quaternionAverage(tuple_in);
+            
+            // Average translation DA FARE
+
+
+        
+
 
 
 
@@ -433,6 +505,10 @@ private:
             // camera_origin[2] = trans.getOrigin().z();
 
             // quat_cam = trans.getRotation();
+
+
+            // Per usare il frame di dimensione maggiore
+            t = msg_in.transforms[lower_msg_ID];
 
             camera_origin[0] = t.transform.translation.x;
             camera_origin[1] = t.transform.translation.y;
