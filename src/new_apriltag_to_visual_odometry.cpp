@@ -39,8 +39,6 @@ public:
     OdometryPublisher() : Node("apriltag_to_visual_odometry")
     {
         // Getting parameter from yaml file
-        // declare_parameter<parameter_type>(parameter_name, default_value, parameter_descriptor)
-        // return the effective value
         debug_ = declare_parameter<bool>("debug", false);
         graphics_on_ = declare_parameter<bool>("graphics_on", false);
 
@@ -60,16 +58,17 @@ public:
         std::vector<double> offset_body_camera = declare_parameter<std::vector<double>>("offset_body_camera", {0.0, 0.0, 0.0});
         offset_body_camera_vect_ = {offset_body_camera[0], offset_body_camera[1], offset_body_camera[2]};
 
-        std::cout << "-------------------CAMERA-PARAMETER-------------------" << std::endl;
-        std::cout << "ANGLE SETTINGS:" << std::endl;
-        std::cout << "roll_cam = " << roll_cam_ << " [rad]" << std::endl;
-        std::cout << "pitch_cam = " << pitch_cam_ << " [rad]" << std::endl;
-        std::cout << "yaw_cam = " << yaw_cam_ << " [rad]" << std::endl;
-        std::cout << "offset_camera_body = "
-                  << "[ x: " << offset_camera_body_vect_[0] << ", y: " << offset_camera_body_vect_[1] << ", z: " << offset_camera_body_vect_[2] << " ]  [m]" << std::endl;
-        std::cout << "camera_frame = " << fromFrameRel_ << std::endl;
-        std::cout << "------------------------------------------------------" << std::endl
-                  << std::endl;
+        std::cout   << "-------------------CAMERA-PARAMETER-------------------\n"
+                    << "ANGLE SETTINGS:\n"
+                    << "roll_cam = " << roll_cam_ << " [rad]\n"
+                    << "pitch_cam = " << pitch_cam_ << " [rad]\n"
+                    << "yaw_cam = " << yaw_cam_ << " [rad]\n"
+                    << "offset_camera_body = "
+                    << "[ x: " << offset_camera_body_vect_[0] 
+                    << ", y: " << offset_camera_body_vect_[1] 
+                    << ", z: " << offset_camera_body_vect_[2] << " ]  [m]\n"
+                    << "camera_frame = " << fromFrameRel_ << std::endl
+                    << "------------------------------------------------------\n" << std::endl;
 
         tag_ids_ = declare_parameter<std::vector<int64_t>>("tag_ids", std::vector<int64_t>{});
 
@@ -80,14 +79,14 @@ public:
         std::vector<double> tags_locations_S = declare_parameter<std::vector<double>>("tags_locations_S", {0.0, 0.0});
 
         // weight to apply from YAML file
-        // frame_weight = declare_parameter<std::vector<int>>("frame_weight", {1,4,16,64});
-        frame_weight = {1, 4, 16, 64};
+        frame_weight_ = declare_parameter<std::vector<int64_t>>("frame_weight", std::vector<int64_t>{1, 4, 16, 64});
 
         // filtering parameters
+        just_bigger_one_ = declare_parameter<bool>("just_bigger_one", false);
+        euc_dist_filter_ = declare_parameter<bool>("euc_dist_filter", true);
         euc_dist_max = declare_parameter<double>("euc_dist_max", 0.05);
         euc_outlier_ratio = declare_parameter<double>("euc_outlier_ratio", 0.2);
         euc_dist_to_increase = declare_parameter<double>("euc_dist_to_increase", 0.01);
-
 
         // To publish static transforms once at startup
         if (graphics_on_)
@@ -193,7 +192,6 @@ public:
 
         // Publish the transformation considering camera offset and rotations relative to frame
         this->make_static_transforms(drone_frame_estimated_, fromFrameRel_, offset_body_camera_vect_, quat_body_to_cam);
-
     }
 
 private:
@@ -260,37 +258,20 @@ private:
     {
         if (frame_id <= 99)
         {
-            return frame_weight[3];
+            return frame_weight_[3];
         }
         else if (frame_id >= 100 && frame_id <= 399)
         {
-            return frame_weight[2];
+            return frame_weight_[2];
         }
         else if (frame_id >= 400 && frame_id <= 999)
         {
-            return frame_weight[1];
+            return frame_weight_[1];
         }
         else
         {
-            return frame_weight[0];
+            return frame_weight_[0];
         }
-    }
-
-    void print_quaternion(geometry_msgs::msg::TransformStamped ts)
-    {
-        tf2::Quaternion q(
-            ts.transform.rotation.x,
-            ts.transform.rotation.y,
-            ts.transform.rotation.z,
-            ts.transform.rotation.w);
-
-        std::cout << "x: " << ts.transform.rotation.x
-                  << " y: " << ts.transform.rotation.y
-                  << " z: " << ts.transform.rotation.z
-                  << " w: " << ts.transform.rotation.w
-                  << " axis: " << q.getAxis()[0] << " " << q.getAxis()[1] << " " << q.getAxis()[2]
-                  << " angle: " << q.getAngle()
-                  << " " << ts.child_frame_id << std::endl;
     }
 
     tf2::Vector3 get_offset(int frame_id)
@@ -322,89 +303,80 @@ private:
     }
 
     tf2::Quaternion quaternionAverage(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t)
-{
-
-	// first build a 4x4 matrix which is the elementwise sum of the product of each quaternion with itself
-	Eigen::Matrix4f A = Eigen::Matrix4f::Zero();
-    Eigen::Vector4f q_i = Eigen::Vector4f::Zero();
-    int w_i = 0;
-    int w_sum = 0;
-    int t_size = static_cast<int>(t.size());
-
-	for (int i=0; i<t_size; i++)
     {
-        q_i(0) = std::get<0>(t[i]);
-        q_i(1) = std::get<1>(t[i]);
-        q_i(2) = std::get<2>(t[i]);
-        q_i(3) = std::get<3>(t[i]);
-        w_i = std::get<7>(t[i]);
-		A += w_i * q_i * q_i.transpose();
-        w_sum += w_i;
+
+        // first build a 4x4 matrix which is the elementwise sum of the product of each quaternion with itself
+        Eigen::Matrix4f A = Eigen::Matrix4f::Zero();
+        Eigen::Vector4f q_i = Eigen::Vector4f::Zero();
+        int w_i = 0;
+        int w_sum = 0;
+        int t_size = static_cast<int>(t.size());
+
+        for (int i = 0; i < t_size; i++)
+        {
+            q_i(0) = std::get<0>(t[i]);
+            q_i(1) = std::get<1>(t[i]);
+            q_i(2) = std::get<2>(t[i]);
+            q_i(3) = std::get<3>(t[i]);
+            w_i = std::get<7>(t[i]);
+            A += w_i * q_i * q_i.transpose();
+            w_sum += w_i;
+        }
+
+        // normalise with the sum of the weights
+        A /= w_sum;
+
+        // Calculate eigenvector and eigenvalues
+        Eigen::EigenSolver<Eigen::Matrix4f> es(A);
+        Eigen::VectorXf eigenValues = es.eigenvalues().real();
+        Eigen::MatrixXf eigenVectors = es.eigenvectors().real();
+
+        // find the eigen vector corresponding to the largest eigen value
+        int largestEigenValueIndex = 0;
+        float largestEigenValue = eigenValues(0);
+
+        for (int i = 1; i < eigenValues.rows(); ++i)
+        {
+            if (eigenValues(i) > largestEigenValue)
+            {
+                largestEigenValue = eigenValues(i);
+                largestEigenValueIndex = i;
+            }
+        }
+
+        tf2::Quaternion average(
+            eigenVectors(0, largestEigenValueIndex),
+            eigenVectors(1, largestEigenValueIndex),
+            eigenVectors(2, largestEigenValueIndex),
+            eigenVectors(3, largestEigenValueIndex));
+
+        return average;
     }
 
-	// normalise with the sum of the weights
-	A /= w_sum;
-
-    // Calculate eigenvector and eigenvalues
-    Eigen::EigenSolver<Eigen::Matrix4f> es(A);
-    Eigen::VectorXf eigenValues = es.eigenvalues().real();
-    Eigen::MatrixXf eigenVectors = es.eigenvectors().real();
-
-
-	// find the eigen vector corresponding to the largest eigen value
-	int largestEigenValueIndex;
-	float largestEigenValue;
-	bool first = true;
-
-	for (int i=0; i<eigenValues.rows(); ++i)
-	{
-		if (first)
-		{
-			largestEigenValue = eigenValues(i);
-			largestEigenValueIndex = i;
-			first = false;
-		}
-		else if (eigenValues(i) > largestEigenValue)
-		{
-			largestEigenValue = eigenValues(i);
-			largestEigenValueIndex = i;
-		}
-	}
-
-    tf2::Quaternion average(
-       eigenVectors(0, largestEigenValueIndex),
-       eigenVectors(1, largestEigenValueIndex),
-       eigenVectors(2, largestEigenValueIndex),
-       eigenVectors(3, largestEigenValueIndex));     
-
-	return average;
-}
-
-tf2::Vector3 translationAverage(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t)
-{
-    double w_i = 0;
-    double w_sum = 0;
-    int t_size = static_cast<int>(t.size());
-    tf2::Vector3 v_i(0,0,0);
-    tf2::Vector3 v_average(0,0,0);
-
-	for (int i=0; i<t_size; i++)
+    tf2::Vector3 translationAverage(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t)
     {
-        w_i = std::get<7>(t[i]);
-        v_i[0] = w_i*std::get<4>(t[i]);
-        v_i[1] = w_i*std::get<5>(t[i]);
-        v_i[2] = w_i*std::get<6>(t[i]);
-		v_average += v_i;
-        w_sum += w_i;
+        double w_i = 0;
+        double w_sum = 0;
+        int t_size = static_cast<int>(t.size());
+        tf2::Vector3 v_i(0, 0, 0);
+        tf2::Vector3 v_average(0, 0, 0);
+
+        for (int i = 0; i < t_size; i++)
+        {
+            w_i = std::get<7>(t[i]);
+            v_i[0] = w_i * std::get<4>(t[i]);
+            v_i[1] = w_i * std::get<5>(t[i]);
+            v_i[2] = w_i * std::get<6>(t[i]);
+            v_average += v_i;
+            w_sum += w_i;
+        }
+
+        v_average[0] /= w_sum;
+        v_average[1] /= w_sum;
+        v_average[2] /= w_sum;
+
+        return v_average;
     }
-
-    v_average[0] /= w_sum;
-    v_average[1] /= w_sum;
-    v_average[2] /= w_sum;
-
-    return v_average;
-
-}
 
     void tf_callback(tf2_msgs::msg::TFMessage::ConstSharedPtr tf_msg)
     {
@@ -412,7 +384,8 @@ tf2::Vector3 translationAverage(std::vector<std::tuple<double, double, double, d
 
         if (msg_in.transforms.size() != 0)
         {
-        geometry_msgs::msg::TransformStamped t_lower_id = msg_in.transforms[0];
+            geometry_msgs::msg::TransformStamped t_lower_id = msg_in.transforms[0];
+
             // If the first useful transform arrived
             if (time_start == 0 || t_lower_id.header.stamp.sec == 0)
             {
@@ -423,7 +396,7 @@ tf2::Vector3 translationAverage(std::vector<std::tuple<double, double, double, d
                 delta_time = time_start - static_cast<u_int64_t>(t_lower_id.header.stamp.sec * 1000000 + t_lower_id.header.stamp.nanosec / 1000);
                 RCLCPP_INFO(this->get_logger(), "Time start at time: %d and the delta time for synchronization is: %d", time_start, delta_time);
 
-                // Set the transform based on the bigger apriltag seen
+                // Set the first transform based on the bigger apriltag seen
                 int lower_child_id = std::stoi(t_lower_id.child_frame_id.substr(5, 4));
                 trans_average[0] = (t_lower_id.transform.translation.x + get_offset(lower_child_id)[0]);
                 trans_average[1] = (t_lower_id.transform.translation.y + get_offset(lower_child_id)[1]);
@@ -431,202 +404,175 @@ tf2::Vector3 translationAverage(std::vector<std::tuple<double, double, double, d
             }
             else
             {
-            // vector of tuple: (quat_x quat_y quat_z quat_w x y z weight frame_id)
-            std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> tuple_in;
-            std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered;
-
-            // for every transform in the message received
-            for (size_t i = 0u; i < msg_in.transforms.size(); i++)
-            {
-                geometry_msgs::msg::TransformStamped ts_in = msg_in.transforms[i];
-                int child_id_num = std::stoi(ts_in.child_frame_id.substr(5, 4));
-
-                tf2::Vector3 off_i = get_offset(child_id_num);
-
-                // push back in the tuple vector
-                tuple_in.push_back(std::make_tuple(
-                    ts_in.transform.rotation.x,
-                    ts_in.transform.rotation.y,
-                    ts_in.transform.rotation.z,
-                    ts_in.transform.rotation.w,
-                    ts_in.transform.translation.x + off_i[0],
-                    ts_in.transform.translation.y + off_i[1],
-                    ts_in.transform.translation.z + off_i[2],
-                    get_weight(child_id_num),
-                    child_id_num));
-            }
-
-            if (debug_)
-            {
-                std::cout   << "-------------------------------------------------" << std::endl
-                            << "Trasformazioni ricevute: \n";
-                for (int i = 0; i < static_cast<int>(tuple_in.size()); i++)
-                    std::cout << "\tq_x: " << std::get<0>(tuple_in[i]) << " "
-                              << "q_y: " << std::get<1>(tuple_in[i]) << " "
-                              << "q_z: " << std::get<2>(tuple_in[i]) << " "
-                              << "q_w: " << std::get<3>(tuple_in[i]) << " "
-                              << "x: " << std::get<4>(tuple_in[i]) << " "
-                              << "y: " << std::get<5>(tuple_in[i]) << " "
-                              << "z: " << std::get<6>(tuple_in[i]) << " "
-                              << "w: " << std::get<7>(tuple_in[i]) << " "
-                              << "frame: " << std::get<8>(tuple_in[i]) << std::endl;
-            }
-
-            // // Sort by the first element x
-            // std::sort(tuple_in.begin(), tuple_in.end());
-
-            // if (debug_)
-            // {
-            //     std::cout << "Sorted Vector of Tuple on basis"
-            //                  " of first element of tuple:\n";
-
-            //     for (int i = 0; i < static_cast<int>(tuple_in.size()); i++)
-            //         std::cout << std::get<0>(tuple_in[i]) << " "
-            //                   << std::get<1>(tuple_in[i]) << " "
-            //                   << std::get<2>(tuple_in[i]) << " "
-            //                   << std::get<3>(tuple_in[i]) << " "
-            //                   << std::get<4>(tuple_in[i]) << " "
-            //                   << std::get<5>(tuple_in[i]) << " "
-            //                   << std::get<6>(tuple_in[i]) << " "
-            //                   << std::get<7>(tuple_in[i]) << " "
-            //                   << std::get<8>(tuple_in[i]) << std::endl;
-            // }
-
-            // Compute the weighted median and eraser the outliers
-            // int sum = 0;
-            // int all_weight = 0;
-            // int N = static_cast<int>(tuple_in.size());
-
-            // for (int i = 0; i < N; i++)
-            // {
-            //     all_weight += std::get<4>(tuple_in[i]);
-            // }
-
-            // for (int i = 0; i < N; i++)
-            // {
-            //     sum += std::get<4>(tuple_in[i]);
-            //     if ((sum < all_weight / 8) || (sum > all_weight * 7 / 8))
-            //         tuple_in.erase(tuple_in.begin() + i);
-            // }
-
-            // if (debug_)
-            // {
-            //     std::cout << "Sorted Vector of Tuple after deleting the outliers: \n";
-            //     for (int i = 0; i < static_cast<int>(tuple_in.size()); i++)
-            //         std::cout << std::get<0>(tuple_in[i]) << " "
-            //                   << std::get<1>(tuple_in[i]) << " "
-            //                   << std::get<2>(tuple_in[i]) << " "
-            //                   << std::get<3>(tuple_in[i]) << " "
-            //                   << std::get<4>(tuple_in[i]) << " "
-            //                   << std::get<5>(tuple_in[i]) << std::endl;
-            // }
-
-
-            // Erase the outliers considering the Euclidian distance
-            
-            int t_size = static_cast<int>(tuple_in.size());
-            double dist_euc;
-            bool too_many_outliers = true;
-            double euc_dist_to_sum = 0;
-            int euc_dist_count = 0;
-
-            while (too_many_outliers)
-            {
-                t_filtered.clear();
-                for (int i = 0; i < t_size; i++)
+                // Considering just the bigger frame, the one with the lower ID
+                if (just_bigger_one_)
                 {
-                    dist_euc = sqrt(pow( (std::get<4>(tuple_in[i]) - trans_average.getX()), 2.0) +
-                                    pow( (std::get<5>(tuple_in[i]) - trans_average.getY()), 2.0) +
-                                    pow( (std::get<6>(tuple_in[i]) - trans_average.getZ()), 2.0) );
+                    int lower_frame_ID = std::stoi(t_lower_id.child_frame_id.substr(5, 4));
+                    camera_origin[0] = t_lower_id.transform.translation.x;
+                    camera_origin[1] = t_lower_id.transform.translation.y;
+                    camera_origin[2] = t_lower_id.transform.translation.z;
 
-                    if ( dist_euc < euc_dist_max + euc_dist_to_sum )
-                    {
-                        t_filtered.push_back(tuple_in[i]);
-                    }
+                    quat_cam[0] = t_lower_id.transform.rotation.x;
+                    quat_cam[1] = t_lower_id.transform.rotation.y;
+                    quat_cam[2] = t_lower_id.transform.rotation.z;
+                    quat_cam[3] = t_lower_id.transform.rotation.w;
+
+                    quat_body = quat_cam * quat_cam_to_body_x * quat_cam_to_body_y * quat_cam_to_body_z;
+
+                    body_origin = quatRotate(quat_cam, offset_camera_body_vect_) + camera_origin + get_offset(lower_frame_ID);
                 }
 
-                euc_dist_count ++;
-
-                if ( (static_cast<double>(t_filtered.size()) / t_size) < euc_outlier_ratio )
-                {
-                    euc_dist_to_sum += euc_dist_to_increase;
-                }
+                // Considering all the transforms received
                 else
                 {
-                    too_many_outliers = false;  
+                    // vector of tuple: (quat_x quat_y quat_z quat_w x y z weight frame_id)
+                    std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> tuple_in;
+                    std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered;
+
+                    // for every transform in the message received
+                    for (size_t i = 0u; i < msg_in.transforms.size(); i++)
+                    {
+                        geometry_msgs::msg::TransformStamped ts_in = msg_in.transforms[i];
+                        int child_id_num = std::stoi(ts_in.child_frame_id.substr(5, 4));
+
+                        tf2::Vector3 off_i = get_offset(child_id_num);
+
+                        // push back in the tuple vector
+                        tuple_in.push_back(std::make_tuple(
+                            ts_in.transform.rotation.x,
+                            ts_in.transform.rotation.y,
+                            ts_in.transform.rotation.z,
+                            ts_in.transform.rotation.w,
+                            ts_in.transform.translation.x + off_i[0],
+                            ts_in.transform.translation.y + off_i[1],
+                            ts_in.transform.translation.z + off_i[2],
+                            get_weight(child_id_num),
+                            child_id_num));
+                    }
+
+                    // Print the received transforms
+                    if (debug_)
+                    {
+                        std::cout << "-------------------------------------------------" << std::endl
+                                  << "Trasformazioni ricevute: \n";
+                        for (int i = 0; i < static_cast<int>(tuple_in.size()); i++)
+                            std::cout << "\tq_x: " << std::get<0>(tuple_in[i]) << " "
+                                      << "q_y: " << std::get<1>(tuple_in[i]) << " "
+                                      << "q_z: " << std::get<2>(tuple_in[i]) << " "
+                                      << "q_w: " << std::get<3>(tuple_in[i]) << " "
+                                      << "x: " << std::get<4>(tuple_in[i]) << " "
+                                      << "y: " << std::get<5>(tuple_in[i]) << " "
+                                      << "z: " << std::get<6>(tuple_in[i]) << " "
+                                      << "w: " << std::get<7>(tuple_in[i]) << " "
+                                      << "frame: " << std::get<8>(tuple_in[i]) << std::endl;
+                    }
+
+                    // // Filtering by weighted median of the translations
+
+                    // if (median_filter)
+                    // {
+                    //     bool sortbysec( const tuple<double, double, double, double, double, double, double, int, int>& a,
+                    //                     const tuple<double, double, double, double, double, double, double, int, int>& b)
+                    //     {
+                    //         return (get<4>(a) < get<4>(b));
+                    //     }
+                    //     // Sort by the first element x
+                    //     std::sort(tuple_in.begin(), tuple_in.end());
+
+                    //     Compute the weighted median and eraser the outliers int sum = 0;
+                    //     int all_weight = 0;
+                    //     int N = static_cast<int>(tuple_in.size());
+
+                    //     for (int i = 0; i < N; i++)
+                    //     {
+                    //         all_weight += std::get<4>(tuple_in[i]);
+                    //     }
+
+                    //     for (int i = 0; i < N; i++)
+                    //     {
+                    //         sum += std::get<4>(tuple_in[i]);
+                    //         if ((sum < all_weight / 8) || (sum > all_weight * 7 / 8))
+                    //             tuple_in.erase(tuple_in.begin() + i);
+                    //     }
+                    // }
+
+                    // Erase the outliers considering the Euclidian distance
+                    if (euc_dist_filter_)
+                    {
+                        int t_size = static_cast<int>(tuple_in.size());
+                        double dist_euc;
+                        bool too_many_outliers = true;
+                        double euc_dist_to_sum = 0;
+                        int euc_dist_count = 0;
+
+                        while (too_many_outliers)
+                        {
+                            t_filtered.clear();
+                            for (int i = 0; i < t_size; i++)
+                            {
+                                dist_euc = sqrt(pow((std::get<4>(tuple_in[i]) - trans_average.getX()), 2.0) +
+                                                pow((std::get<5>(tuple_in[i]) - trans_average.getY()), 2.0) +
+                                                pow((std::get<6>(tuple_in[i]) - trans_average.getZ()), 2.0));
+
+                                if (dist_euc < euc_dist_max + euc_dist_to_sum)
+                                {
+                                    t_filtered.push_back(tuple_in[i]);
+                                }
+                            }
+
+                            euc_dist_count++;
+
+                            if ((static_cast<double>(t_filtered.size()) / t_size) < euc_outlier_ratio)
+                            {
+                                euc_dist_to_sum += euc_dist_to_increase;
+                            }
+                            else
+                            {
+                                too_many_outliers = false;
+                            }
+
+                            if (euc_dist_count > 30)
+                            {
+                                too_many_outliers = false;
+                                t_filtered = tuple_in;
+                            }
+                        }
+                        if (debug_)
+                        {
+                            std::cout << "Euclidean distance algorithm iteration: " << euc_dist_count << std::endl;
+                        }
+                    }
+
+                    else
+                    {
+                        t_filtered = tuple_in;
+                    }
+
+                    if (debug_)
+                    {
+                        std::cout << "Trasformazioni filtrate: \n";
+                        for (int i = 0; i < static_cast<int>(t_filtered.size()); i++)
+                            std::cout << "\tq_x: " << std::get<0>(t_filtered[i]) << " "
+                                      << "q_y: " << std::get<1>(t_filtered[i]) << " "
+                                      << "q_z: " << std::get<2>(t_filtered[i]) << " "
+                                      << "q_w: " << std::get<3>(t_filtered[i]) << " "
+                                      << "x: " << std::get<4>(t_filtered[i]) << " "
+                                      << "y: " << std::get<5>(t_filtered[i]) << " "
+                                      << "z: " << std::get<6>(t_filtered[i]) << " "
+                                      << "w: " << std::get<7>(t_filtered[i]) << " "
+                                      << "frame: " << std::get<8>(t_filtered[i]) << std::endl;
+                    }
+
+                    // Average quaternions
+                    quat_average = quaternionAverage(t_filtered);
+
+                    // Average translations
+                    trans_average = translationAverage(t_filtered);
+
+                    // Final transforms
+                    quat_body = quat_average * quat_cam_to_body_x * quat_cam_to_body_y * quat_cam_to_body_z;
+                    body_origin = quatRotate(quat_average, offset_camera_body_vect_) + trans_average;
                 }
-
-                if (euc_dist_count > 50 )
-                {
-                    too_many_outliers = false;
-                    t_filtered = tuple_in;
-                }               
-            }
-
-            if (debug_)
-            {
-                std::cout   << "Euclidean distance algorithm iteration: " << euc_dist_count << std::endl
-                            << "Trasformazioni filtrate: \n";
-                for (int i = 0; i < static_cast<int>(t_filtered.size()); i++)
-                    std::cout << "\tq_x: " << std::get<0>(t_filtered[i]) << " "
-                              << "q_y: " << std::get<1>(t_filtered[i]) << " "
-                              << "q_z: " << std::get<2>(t_filtered[i]) << " "
-                              << "q_w: " << std::get<3>(t_filtered[i]) << " "
-                              << "x: " << std::get<4>(t_filtered[i]) << " "
-                              << "y: " << std::get<5>(t_filtered[i]) << " "
-                              << "z: " << std::get<6>(t_filtered[i]) << " "
-                              << "w: " << std::get<7>(t_filtered[i]) << " "
-                              << "frame: " << std::get<8>(t_filtered[i]) << std::endl;
-            }
-
-
-            // Average quaternions
-            tf2::Quaternion quat_average = quaternionAverage(t_filtered);
-            
-            // Average translation 
-            trans_average = translationAverage(t_filtered);
-
-            // Final transforms
-            quat_body = quat_average * quat_cam_to_body_x * quat_cam_to_body_y * quat_cam_to_body_z;
-            body_origin = quatRotate(quat_average, offset_camera_body_vect_) + trans_average;
-            
-
-            // Do some maths to get the correct transform from the world reference system
-
-            // camera_origin[0] = trans.getOrigin().x();
-            // camera_origin[1] = trans.getOrigin().y();
-            // camera_origin[2] = trans.getOrigin().z();
-
-            // quat_cam = trans.getRotation();
-
-
-            // Per usare il frame di dimensione maggiore
-            // t = msg_in.transforms[lower_msg_ID];
-
-            // camera_origin[0] = t_lower_id.transform.translation.x;
-            // camera_origin[1] = t_lower_id.transform.translation.y;
-            // camera_origin[2] = t_lower_id.transform.translation.z;
-
-            // quat_cam[0] = t_lower_id.transform.rotation.x;
-            // quat_cam[1] = t_lower_id.transform.rotation.y;
-            // quat_cam[2] = t_lower_id.transform.rotation.z;
-            // quat_cam[3] = t_lower_id.transform.rotation.w;
-
-            // quat_body = quat_cam * quat_cam_to_body_x * quat_cam_to_body_y * quat_cam_to_body_z;
-
-            // body_origin = quatRotate(quat_cam, offset_camera_body_vect_) + camera_origin + get_offset(lower_frame_ID);
-
-            // if (debug_)
-            // {
-            //     std::cout << "t: s = " << t_lower_id.header.stamp.sec << ", ns = " << t_lower_id.header.stamp.nanosec << ", frame_id = " << t_lower_id.header.frame_id
-            //               << ", child_frame_id = " << t_lower_id.child_frame_id << std::endl
-            //               << "transform: x = " << t_lower_id.transform.translation.x
-            //               << ", y = " << t_lower_id.transform.translation.y << ", z = " << t_lower_id.transform.translation.z << std::endl
-            //               << std::endl
-            //               << std::endl;
-            // }
-
-            
 
                 // Generate the message
                 msg.timestamp = time_start; // time since system start (microseconds)
@@ -659,10 +605,10 @@ tf2::Vector3 translationAverage(std::vector<std::tuple<double, double, double, d
 
                 if (debug_)
                 {
-                    std::cout   << "Final pose:\n"
-                                << "\t translations:\t[ x: " << msg.x << ", y: " << msg.y << ", z: " << msg.z << " ]\n"
-                                << "\t quaternion:\t[ w: " << msg.q[0] << ", ( x: " << msg.q[1] << ", y: " << msg.q[2] << ", z: " << msg.q[3] << ") ]\n"
-                                << "-------------------------------------------------\n";
+                    std::cout << "Final pose:\n"
+                              << "\t translations:\t[ x: " << msg.x << ", y: " << msg.y << ", z: " << msg.z << " ]\n"
+                              << "\t quaternion:\t[ w: " << msg.q[0] << ", ( x: " << msg.q[1] << ", y: " << msg.q[2] << ", z: " << msg.q[3] << ") ]\n"
+                              << "-------------------------------------------------\n\n";
                 }
                 if (graphics_on_)
                 {
@@ -715,16 +661,11 @@ tf2::Vector3 translationAverage(std::vector<std::tuple<double, double, double, d
     std::string drone_frame_estimated_ = "drone";
 
     // Parameter from yaml file
-    bool debug_;
-    bool graphics_on_;
+    bool debug_, graphics_on_, euc_dist_filter_, just_bigger_one_;
     std::string fromFrameRel_;
-    float roll_cam_;                       //[deg]
-    float pitch_cam_;                      //[deg]
-    float yaw_cam_;                        //[deg]
-    tf2::Vector3 offset_camera_body_vect_; //[m]
-    tf2::Vector3 offset_body_camera_vect_; //[m]
-    std::vector<int64_t> tag_ids_;
-    std::vector<int> frame_weight;
+    float roll_cam_, pitch_cam_, yaw_cam_;                           //[deg]
+    tf2::Vector3 offset_camera_body_vect_, offset_body_camera_vect_; //[m]
+    std::vector<int64_t> tag_ids_, frame_weight_;
 
     std::vector<tf2::Vector3> tags_locations_XL_;
     std::vector<tf2::Vector3> tags_locations_L_;
@@ -736,6 +677,7 @@ tf2::Vector3 translationAverage(std::vector<std::tuple<double, double, double, d
     tf2::Quaternion quat_cam_to_body_x, quat_cam_to_body_y, quat_cam_to_body_z;
     tf2::Quaternion quat_body; // from apriltag-frame to body-frame
     tf2::Quaternion quat_cam;  // from apriltag-frame to camera-frame
+    tf2::Quaternion quat_average;
     tf2::Vector3 camera_origin, body_origin, trans_average;
     double euc_dist_max, euc_outlier_ratio, euc_dist_to_increase;
 };
