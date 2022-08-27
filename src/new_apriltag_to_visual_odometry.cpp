@@ -83,10 +83,17 @@ public:
 
         // filtering parameters
         just_bigger_one_ = declare_parameter<bool>("just_bigger_one", false);
-        euc_dist_filter_ = declare_parameter<bool>("euc_dist_filter", true);
+        euc_dist_filter_ = declare_parameter<bool>("euc_dist_filter", false);
+        median_filter_ = declare_parameter<bool>("median_filter", true);
         euc_dist_max = declare_parameter<double>("euc_dist_max", 0.05);
         euc_outlier_ratio = declare_parameter<double>("euc_outlier_ratio", 0.2);
         euc_dist_to_increase = declare_parameter<double>("euc_dist_to_increase", 0.01);
+
+        std::cout   << "------------------FILTERS-PARAMETER-------------------\n"
+                    << "Consider only the bigger frame: " << just_bigger_one_ << std::endl
+                    << "Filtering using euclidean distance: " << euc_dist_filter_ << std::endl
+                    << "Filtering using weighted median: " << median_filter_ << std::endl
+                    << "------------------------------------------------------\n" << std::endl;
 
         // To publish static transforms once at startup
         if (graphics_on_)
@@ -353,6 +360,15 @@ private:
         return average;
     }
 
+    template<int index> struct TupleLess
+    {
+        template<typename Tuple>
+        bool operator() (const Tuple& left, const Tuple& right) const
+        {
+            return std::get<index>(left) < std::get<index>(right);
+        }
+    };
+
     tf2::Vector3 translationAverage(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t)
     {
         double w_i = 0;
@@ -427,7 +443,6 @@ private:
                 {
                     // vector of tuple: (quat_x quat_y quat_z quat_w x y z weight frame_id)
                     std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> tuple_in;
-                    std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered;
 
                     // for every transform in the message received
                     for (size_t i = 0u; i < msg_in.transforms.size(); i++)
@@ -467,47 +482,88 @@ private:
                                       << "frame: " << std::get<8>(tuple_in[i]) << std::endl;
                     }
 
-                    // // Filtering by weighted median of the translations
+                    // Filtering by weighted median of the translations
 
-                    // if (median_filter)
-                    // {
-                    //     bool sortbysec( const tuple<double, double, double, double, double, double, double, int, int>& a,
-                    //                     const tuple<double, double, double, double, double, double, double, int, int>& b)
-                    //     {
-                    //         return (get<4>(a) < get<4>(b));
-                    //     }
-                    //     // Sort by the first element x
-                    //     std::sort(tuple_in.begin(), tuple_in.end());
+                    if (median_filter_)
+                    {
+                        // bool sortbysec( const tuple<double, double, double, double, double, double, double, int, int>& a,
+                        //                 const tuple<double, double, double, double, double, double, double, int, int>& b)
+                        // {
+                        //     return (get<4>(a) < get<4>(b));
+                        // }
+                        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered_med;
+                        int sum = 0;
+                        int all_weight = 0;
+                        int N = static_cast<int>(tuple_in.size());
+                        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> v_tuple[3] = {tuple_in, tuple_in, tuple_in};
 
-                    //     Compute the weighted median and eraser the outliers int sum = 0;
-                    //     int all_weight = 0;
-                    //     int N = static_cast<int>(tuple_in.size());
+                        std::sort(v_tuple[0].begin(), v_tuple[0].end(),  TupleLess<4>());
+                        std::sort(v_tuple[1].begin(), v_tuple[1].end(),  TupleLess<5>());                        
+                        std::sort(v_tuple[2].begin(), v_tuple[2].end(),  TupleLess<6>());
 
-                    //     for (int i = 0; i < N; i++)
-                    //     {
-                    //         all_weight += std::get<4>(tuple_in[i]);
-                    //     }
+                        for (int index = 0; index < 3; index++)
+                        {   
+                            // Compute the weighted median and eraser the outliers 
+                            for (int i = 0; i < N; i++)
+                            {
+                                all_weight += std::get<7>(v_tuple[index][i]);
+                            }
 
-                    //     for (int i = 0; i < N; i++)
-                    //     {
-                    //         sum += std::get<4>(tuple_in[i]);
-                    //         if ((sum < all_weight / 8) || (sum > all_weight * 7 / 8))
-                    //             tuple_in.erase(tuple_in.begin() + i);
-                    //     }
-                    // }
+                            for (int i = 0; i < N; i++)
+                            {
+                                sum += std::get<7>(v_tuple[index][i]);
+                                if ((sum < all_weight / 8) || (sum > all_weight * 7 / 8))
+                                    v_tuple[index].erase(v_tuple[index].begin() + i);
+                            }
+                        }
+
+                        t_filtered_med.clear();
+                        bool zero_tuple = true;
+
+                        // Keep only frames that appears in all 3 tuples
+                        int frame_i = 0;
+                        for (int i = 0; i < static_cast<int>(v_tuple[0].size()); i++)
+                        {
+                            frame_i = std::get<8>(v_tuple[0][i]);
+
+                            for (int j = 0; j < static_cast<int>(v_tuple[1].size()); j++)
+                            {
+                                if (std::get<8>(v_tuple[1][j]) == frame_i)
+                                {
+                                    for (int k = 0; k < static_cast<int>(v_tuple[0].size()); k++)
+                                    {
+                                        if (std::get<8>(v_tuple[2][k]) == frame_i)
+                                        {
+                                            t_filtered_med.push_back(v_tuple[0][i]);
+                                            zero_tuple = false;
+                                            break;
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!zero_tuple)
+                        {
+                            tuple_in = t_filtered_med;
+                        }
+
+                    }
 
                     // Erase the outliers considering the Euclidian distance
                     if (euc_dist_filter_)
                     {
+                        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered_euc;
                         int t_size = static_cast<int>(tuple_in.size());
                         double dist_euc;
-                        bool too_many_outliers = true;
+                        bool find_outliers = true;
                         double euc_dist_to_sum = 0;
                         int euc_dist_count = 0;
 
-                        while (too_many_outliers)
+                        while (find_outliers)
                         {
-                            t_filtered.clear();
+                            t_filtered_euc.clear();
                             for (int i = 0; i < t_size; i++)
                             {
                                 dist_euc = sqrt(pow((std::get<4>(tuple_in[i]) - trans_average.getX()), 2.0) +
@@ -516,58 +572,56 @@ private:
 
                                 if (dist_euc < euc_dist_max + euc_dist_to_sum)
                                 {
-                                    t_filtered.push_back(tuple_in[i]);
+                                    t_filtered_euc.push_back(tuple_in[i]);
                                 }
                             }
 
                             euc_dist_count++;
 
-                            if ((static_cast<double>(t_filtered.size()) / t_size) < euc_outlier_ratio)
+                            if ((static_cast<double>(t_filtered_euc.size()) / t_size) < euc_outlier_ratio)
                             {
                                 euc_dist_to_sum += euc_dist_to_increase;
                             }
                             else
                             {
-                                too_many_outliers = false;
+                                find_outliers = false;
                             }
 
                             if (euc_dist_count > 30)
                             {
-                                too_many_outliers = false;
-                                t_filtered = tuple_in;
+                                find_outliers = false;
+                                t_filtered_euc = tuple_in;
                             }
                         }
+
+                        tuple_in = t_filtered_euc;
+
                         if (debug_)
                         {
                             std::cout << "Euclidean distance algorithm iteration: " << euc_dist_count << std::endl;
                         }
                     }
 
-                    else
-                    {
-                        t_filtered = tuple_in;
-                    }
-
                     if (debug_)
                     {
                         std::cout << "Trasformazioni filtrate: \n";
-                        for (int i = 0; i < static_cast<int>(t_filtered.size()); i++)
-                            std::cout << "\tq_x: " << std::get<0>(t_filtered[i]) << " "
-                                      << "q_y: " << std::get<1>(t_filtered[i]) << " "
-                                      << "q_z: " << std::get<2>(t_filtered[i]) << " "
-                                      << "q_w: " << std::get<3>(t_filtered[i]) << " "
-                                      << "x: " << std::get<4>(t_filtered[i]) << " "
-                                      << "y: " << std::get<5>(t_filtered[i]) << " "
-                                      << "z: " << std::get<6>(t_filtered[i]) << " "
-                                      << "w: " << std::get<7>(t_filtered[i]) << " "
-                                      << "frame: " << std::get<8>(t_filtered[i]) << std::endl;
+                        for (int i = 0; i < static_cast<int>(tuple_in.size()); i++)
+                            std::cout << "\tq_x: " << std::get<0>(tuple_in[i]) << " "
+                                      << "q_y: " << std::get<1>(tuple_in[i]) << " "
+                                      << "q_z: " << std::get<2>(tuple_in[i]) << " "
+                                      << "q_w: " << std::get<3>(tuple_in[i]) << " "
+                                      << "x: " << std::get<4>(tuple_in[i]) << " "
+                                      << "y: " << std::get<5>(tuple_in[i]) << " "
+                                      << "z: " << std::get<6>(tuple_in[i]) << " "
+                                      << "w: " << std::get<7>(tuple_in[i]) << " "
+                                      << "frame: " << std::get<8>(tuple_in[i]) << std::endl;
                     }
 
                     // Average quaternions
-                    quat_average = quaternionAverage(t_filtered);
+                    quat_average = quaternionAverage(tuple_in);
 
                     // Average translations
-                    trans_average = translationAverage(t_filtered);
+                    trans_average = translationAverage(tuple_in);
 
                     // Final transforms
                     quat_body = quat_average * quat_cam_to_body_x * quat_cam_to_body_y * quat_cam_to_body_z;
@@ -661,7 +715,7 @@ private:
     std::string drone_frame_estimated_ = "drone";
 
     // Parameter from yaml file
-    bool debug_, graphics_on_, euc_dist_filter_, just_bigger_one_;
+    bool debug_, graphics_on_, euc_dist_filter_, median_filter_, just_bigger_one_;
     std::string fromFrameRel_;
     float roll_cam_, pitch_cam_, yaw_cam_;                           //[deg]
     tf2::Vector3 offset_camera_body_vect_, offset_body_camera_vect_; //[m]
