@@ -2,16 +2,27 @@ apriltag_to_visual_odometry:
     ros__parameters:
         debug: true    # To see more feedback on the terminal
         graphics_on: true   # To see the apriltag-map, position estimated from Apriltag(drone) and position estimated from EKF(ekf_drone) on rviz2
-        #Camera parameters
+
+        # camera parameters
         camera_frame: "camera_color_optical_frame"
         roll_cam: 0      # [deg]
         pitch_cam: 0     # [deg]
         yaw_cam: -90     # [deg]
+
         # offset_camera_body: [ 0.0, 0.0, 0.0 ]       # [m]
         offset_camera_body: [ 0.035, 0.15, -0.1 ]       # [m]
+
         # offset_camera_body: [ 0.035, 0.10, -0.07 ]       # [m]
         offset_body_camera: [ 0.15, -0.035, 0.1 ]       # [m]
 
+        # filtering parameters
+        just_bigger_one: false         # consider only the bigger frame 
+        euc_dist_filter: false         # compute euclidean distance between a frame location and the past pose to delete the outliers
+        median_filter: true            # weighted median to delete the outliers
+        just_two_size: false           # consider only the two bigger sizes of frames seen 
+        euc_dist_max: 0.05             # euclidean distance limit for deleting outliers
+        euc_dist_to_increase: 0.01     # increase the euclidean distance limit if too frames are deleted
+        euc_outlier_ratio:  0.3        # ratio between the number of frames that have not been deleted and all the frames seen
 
         #Specify the apriltag_map. Example:
         #tag_ids: [first_id_XL, ... , last_id_XL, first_id_L, ... ,last_id_L, first_id_M, ... , last_id_M, first_id_S, ... , last_id_S]

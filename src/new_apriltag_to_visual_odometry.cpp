@@ -58,18 +58,6 @@ public:
         std::vector<double> offset_body_camera = declare_parameter<std::vector<double>>("offset_body_camera", {0.0, 0.0, 0.0});
         offset_body_camera_vect_ = {offset_body_camera[0], offset_body_camera[1], offset_body_camera[2]};
 
-        std::cout   << "-------------------CAMERA-PARAMETER-------------------\n"
-                    << "ANGLE SETTINGS:\n"
-                    << "roll_cam = " << roll_cam_ << " [rad]\n"
-                    << "pitch_cam = " << pitch_cam_ << " [rad]\n"
-                    << "yaw_cam = " << yaw_cam_ << " [rad]\n"
-                    << "offset_camera_body = "
-                    << "[ x: " << offset_camera_body_vect_[0] 
-                    << ", y: " << offset_camera_body_vect_[1] 
-                    << ", z: " << offset_camera_body_vect_[2] << " ]  [m]\n"
-                    << "camera_frame = " << fromFrameRel_ << std::endl
-                    << "------------------------------------------------------\n" << std::endl;
-
         tag_ids_ = declare_parameter<std::vector<int64_t>>("tag_ids", std::vector<int64_t>{});
 
         // apriltag location vectors from the YAML file
@@ -88,12 +76,7 @@ public:
         euc_dist_max = declare_parameter<double>("euc_dist_max", 0.05);
         euc_outlier_ratio = declare_parameter<double>("euc_outlier_ratio", 0.2);
         euc_dist_to_increase = declare_parameter<double>("euc_dist_to_increase", 0.01);
-
-        std::cout   << "------------------FILTERS-PARAMETER-------------------\n"
-                    << "Consider only the bigger frame: " << just_bigger_one_ << std::endl
-                    << "Filtering using euclidean distance: " << euc_dist_filter_ << std::endl
-                    << "Filtering using weighted median: " << median_filter_ << std::endl
-                    << "------------------------------------------------------\n" << std::endl;
+        just_two_size_ = declare_parameter<bool>("just_two_size", false);
 
         // To publish static transforms once at startup
         if (graphics_on_)
@@ -157,6 +140,27 @@ public:
             std::cout << "------------------------------------------------------" << std::endl
                       << std::endl;
         }
+
+                std::cout   << "-------------------CAMERA-PARAMETER-------------------\n"
+                    << "ANGLE SETTINGS:\n"
+                    << "roll_cam = " << roll_cam_ << " [rad]\n"
+                    << "pitch_cam = " << pitch_cam_ << " [rad]\n"
+                    << "yaw_cam = " << yaw_cam_ << " [rad]\n"
+                    << "offset_camera_body = "
+                    << "[ x: " << offset_camera_body_vect_[0] 
+                    << ", y: " << offset_camera_body_vect_[1] 
+                    << ", z: " << offset_camera_body_vect_[2] << " ]  [m]\n"
+                    << "camera_frame = " << fromFrameRel_ << std::endl
+                    << "------------------------------------------------------\n" << std::endl;
+
+                 std::cout   << "------------------FILTERS-PARAMETER-------------------\n"
+                    << "Consider only the bigger frame: " << just_bigger_one_ << std::endl
+                    << "Consider only the two bigger sizes of frame: " << just_two_size_ << std::endl
+                    << "Filtering using euclidean distance: " << euc_dist_filter_ << std::endl
+                    << "Filtering using weighted median: " << median_filter_ << std::endl
+                    << "------------------------------------------------------\n" << std::endl;
+
+                
 
         // Definition of the elementary quaternion camera to body
         //  From (roll_angle, pitch_angle, yaw_angle) to quaternion
@@ -401,6 +405,7 @@ private:
         if (msg_in.transforms.size() != 0)
         {
             geometry_msgs::msg::TransformStamped t_lower_id = msg_in.transforms[0];
+            int lower_child_id = std::stoi(t_lower_id.child_frame_id.substr(5, 4));
 
             // If the first useful transform arrived
             if (time_start == 0 || t_lower_id.header.stamp.sec == 0)
@@ -413,7 +418,6 @@ private:
                 RCLCPP_INFO(this->get_logger(), "Time start at time: %d and the delta time for synchronization is: %d", time_start, delta_time);
 
                 // Set the first transform based on the bigger apriltag seen
-                int lower_child_id = std::stoi(t_lower_id.child_frame_id.substr(5, 4));
                 trans_average[0] = (t_lower_id.transform.translation.x + get_offset(lower_child_id)[0]);
                 trans_average[1] = (t_lower_id.transform.translation.y + get_offset(lower_child_id)[1]);
                 trans_average[2] = (t_lower_id.transform.translation.z + get_offset(lower_child_id)[2]);
@@ -482,8 +486,25 @@ private:
                                       << "frame: " << std::get<8>(tuple_in[i]) << std::endl;
                     }
 
-                    // Filtering by weighted median of the translations
+                    // Consider the two bigger size of frames
+                    if (just_two_size_)
+                    {
+                        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered_two;
+                        t_filtered_two.clear();
+                        int bigger_weight = get_weight(lower_child_id);
+                        int weight_limit = sqrt(bigger_weight); // WARNING: only with quadratic weight
+                        
+                        for (int i = 0; i < static_cast<int>(tuple_in.size()); i++)
+                        {
+                            if (std::get<7>(tuple_in[i]) >= weight_limit)
+                            {
+                                t_filtered_two.push_back(tuple_in[i]);
+                            }
+                        }   
+                        tuple_in = t_filtered_two;
+                    }
 
+                    // Filtering by weighted median of the translations
                     if (median_filter_)
                     {
                         // bool sortbysec( const tuple<double, double, double, double, double, double, double, int, int>& a,
@@ -501,21 +522,106 @@ private:
                         std::sort(v_tuple[1].begin(), v_tuple[1].end(),  TupleLess<5>());                        
                         std::sort(v_tuple[2].begin(), v_tuple[2].end(),  TupleLess<6>());
 
-                        for (int index = 0; index < 3; index++)
-                        {   
-                            // Compute the weighted median and eraser the outliers 
-                            for (int i = 0; i < N; i++)
+                        //  if (debug_)
+                        //     {
+                        //         std::cout << "V_TUPLE_0: \n";
+                        //         for (int i = 0; i < static_cast<int>(v_tuple[0].size()); i++)
+                        //             std::cout << "\tq_x: " << std::get<0>(v_tuple[0][i]) << " "
+                        //                     << "q_y: " << std::get<1>(v_tuple[0][i]) << " "
+                        //                     << "q_z: " << std::get<2>(v_tuple[0][i]) << " "
+                        //                     << "q_w: " << std::get<3>(v_tuple[0][i]) << " "
+                        //                     << "x: " << std::get<4>(v_tuple[0][i]) << " "
+                        //                     << "y: " << std::get<5>(v_tuple[0][i]) << " "
+                        //                     << "z: " << std::get<6>(v_tuple[0][i]) << " "
+                        //                     << "w: " << std::get<7>(v_tuple[0][i]) << " "
+                        //                     << "frame: " << std::get<8>(v_tuple[0][i]) << std::endl;
+                        //         std::cout << "V_TUPLE_1: \n";
+                        //         for (int i = 0; i < static_cast<int>(v_tuple[1].size()); i++)
+                        //             std::cout << "\tq_x: " << std::get<0>(v_tuple[1][i]) << " "
+                        //                     << "q_y: " << std::get<1>(v_tuple[1][i]) << " "
+                        //                     << "q_z: " << std::get<2>(v_tuple[1][i]) << " "
+                        //                     << "q_w: " << std::get<3>(v_tuple[1][i]) << " "
+                        //                     << "x: " << std::get<4>(v_tuple[1][i]) << " "
+                        //                     << "y: " << std::get<5>(v_tuple[1][i]) << " "
+                        //                     << "z: " << std::get<6>(v_tuple[1][i]) << " "
+                        //                     << "w: " << std::get<7>(v_tuple[1][i]) << " "
+                        //                     << "frame: " << std::get<8>(v_tuple[1][i]) << std::endl;
+                        //         std::cout << "V_TUPLE_2: \n";
+                        //         for (int i = 0; i < static_cast<int>(v_tuple[2].size()); i++)
+                        //             std::cout << "\tq_x: " << std::get<0>(v_tuple[2][i]) << " "
+                        //                     << "q_y: " << std::get<1>(v_tuple[2][i]) << " "
+                        //                     << "q_z: " << std::get<2>(v_tuple[2][i]) << " "
+                        //                     << "q_w: " << std::get<3>(v_tuple[2][i]) << " "
+                        //                     << "x: " << std::get<4>(v_tuple[2][i]) << " "
+                        //                     << "y: " << std::get<5>(v_tuple[2][i]) << " "
+                        //                     << "z: " << std::get<6>(v_tuple[2][i]) << " "
+                        //                     << "w: " << std::get<7>(v_tuple[2][i]) << " "
+                        //                     << "frame: " << std::get<8>(v_tuple[2][i]) << std::endl;
+                        //  }
+                        
+                        // Calculate the sum of all_weight
+                        for (int i = 0; i < N; i++)
                             {
-                                all_weight += std::get<7>(v_tuple[index][i]);
+                                all_weight += std::get<7>(v_tuple[0][i]);
                             }
 
-                            for (int i = 0; i < N; i++)
+                        // Compute the weighted median and eraser the outliers for x y z
+                        for (int index = 0; index < 3; index++)
+                        {   
+                            sum = 0;
+                            int i = 0;
+                            int size = static_cast<int>(tuple_in.size());
+                            while (i != size)
                             {
                                 sum += std::get<7>(v_tuple[index][i]);
                                 if ((sum < all_weight / 8) || (sum > all_weight * 7 / 8))
+                                {
                                     v_tuple[index].erase(v_tuple[index].begin() + i);
+                                    size--;
+                                }
+                                else
+                                {
+                                    i++;
+                                }
                             }
                         }
+
+                        // if (debug_)
+                        //     {
+                        //         std::cout << "V_TUPLE_0 ERASE: \n";
+                        //         for (int i = 0; i < static_cast<int>(v_tuple[0].size()); i++)
+                        //             std::cout << "\tq_x: " << std::get<0>(v_tuple[0][i]) << " "
+                        //                     << "q_y: " << std::get<1>(v_tuple[0][i]) << " "
+                        //                     << "q_z: " << std::get<2>(v_tuple[0][i]) << " "
+                        //                     << "q_w: " << std::get<3>(v_tuple[0][i]) << " "
+                        //                     << "x: " << std::get<4>(v_tuple[0][i]) << " "
+                        //                     << "y: " << std::get<5>(v_tuple[0][i]) << " "
+                        //                     << "z: " << std::get<6>(v_tuple[0][i]) << " "
+                        //                     << "w: " << std::get<7>(v_tuple[0][i]) << " "
+                        //                     << "frame: " << std::get<8>(v_tuple[0][i]) << std::endl;
+                        //         std::cout << "V_TUPLE_1 ERASE: \n";
+                        //         for (int i = 0; i < static_cast<int>(v_tuple[1].size()); i++)
+                        //             std::cout << "\tq_x: " << std::get<0>(v_tuple[1][i]) << " "
+                        //                     << "q_y: " << std::get<1>(v_tuple[1][i]) << " "
+                        //                     << "q_z: " << std::get<2>(v_tuple[1][i]) << " "
+                        //                     << "q_w: " << std::get<3>(v_tuple[1][i]) << " "
+                        //                     << "x: " << std::get<4>(v_tuple[1][i]) << " "
+                        //                     << "y: " << std::get<5>(v_tuple[1][i]) << " "
+                        //                     << "z: " << std::get<6>(v_tuple[1][i]) << " "
+                        //                     << "w: " << std::get<7>(v_tuple[1][i]) << " "
+                        //                     << "frame: " << std::get<8>(v_tuple[1][i]) << std::endl;
+                        //         std::cout << "V_TUPLE_2 ERASE: \n";
+                        //         for (int i = 0; i < static_cast<int>(v_tuple[2].size()); i++)
+                        //             std::cout << "\tq_x: " << std::get<0>(v_tuple[2][i]) << " "
+                        //                     << "q_y: " << std::get<1>(v_tuple[2][i]) << " "
+                        //                     << "q_z: " << std::get<2>(v_tuple[2][i]) << " "
+                        //                     << "q_w: " << std::get<3>(v_tuple[2][i]) << " "
+                        //                     << "x: " << std::get<4>(v_tuple[2][i]) << " "
+                        //                     << "y: " << std::get<5>(v_tuple[2][i]) << " "
+                        //                     << "z: " << std::get<6>(v_tuple[2][i]) << " "
+                        //                     << "w: " << std::get<7>(v_tuple[2][i]) << " "
+                        //                     << "frame: " << std::get<8>(v_tuple[2][i]) << std::endl;
+                        //     }
 
                         t_filtered_med.clear();
                         bool zero_tuple = true;
@@ -530,7 +636,7 @@ private:
                             {
                                 if (std::get<8>(v_tuple[1][j]) == frame_i)
                                 {
-                                    for (int k = 0; k < static_cast<int>(v_tuple[0].size()); k++)
+                                    for (int k = 0; k < static_cast<int>(v_tuple[2].size()); k++)
                                     {
                                         if (std::get<8>(v_tuple[2][k]) == frame_i)
                                         {
@@ -715,7 +821,7 @@ private:
     std::string drone_frame_estimated_ = "drone";
 
     // Parameter from yaml file
-    bool debug_, graphics_on_, euc_dist_filter_, median_filter_, just_bigger_one_;
+    bool debug_, graphics_on_, euc_dist_filter_, median_filter_, just_bigger_one_, just_two_size_;
     std::string fromFrameRel_;
     float roll_cam_, pitch_cam_, yaw_cam_;                           //[deg]
     tf2::Vector3 offset_camera_body_vect_, offset_body_camera_vect_; //[m]
