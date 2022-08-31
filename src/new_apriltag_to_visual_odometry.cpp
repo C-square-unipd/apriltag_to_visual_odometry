@@ -70,6 +70,7 @@ public:
         // weight to apply from YAML file
         frame_weight_ = declare_parameter<std::vector<int64_t>>("frame_weight", std::vector<int64_t>{1, 4, 16, 64});
 
+
         // filtering parameters
         just_bigger_one_ = declare_parameter<bool>("just_bigger_one", false);
         euc_dist_filter_ = declare_parameter<bool>("euc_dist_filter", false);
@@ -78,6 +79,8 @@ public:
         euc_outlier_ratio = declare_parameter<double>("euc_outlier_ratio", 0.2);
         euc_dist_to_increase = declare_parameter<double>("euc_dist_to_increase", 0.01);
         just_two_size_ = declare_parameter<bool>("just_two_size", false);
+        euc_use_ekf_ = declare_parameter<bool>("euc_use_ekf", true);
+        final_fir_ = declare_parameter<bool>("final_fir", true);
 
         // To publish static transforms once at startup
         if (graphics_on_)
@@ -246,7 +249,6 @@ private:
     void vehicle_odometry_callback(const px4_msgs::msg::VehicleOdometry::SharedPtr msg)
     {
         rclcpp::Time now = this->get_clock()->now();
-        geometry_msgs::msg::TransformStamped tf_ekf_drone;
 
         tf_ekf_drone.header.stamp = now;
         tf_ekf_drone.header.frame_id = home_map_frame_;
@@ -603,15 +605,29 @@ private:
                         bool find_outliers = true;
                         double euc_dist_to_sum = 0;
                         int euc_dist_count = 0;
+                        double old_trans[3];
 
                         while (find_outliers)
                         {
+                            if (euc_use_ekf_)
+                            {
+                                old_trans[0] = tf_ekf_drone.transform.translation.x;
+                                old_trans[1] = tf_ekf_drone.transform.translation.y;
+                                old_trans[2] = tf_ekf_drone.transform.translation.z;
+                            }
+                            else
+                            {
+                                old_trans[0] = trans_average.getX();
+                                old_trans[1] = trans_average.getY();
+                                old_trans[2] = trans_average.getZ();
+                            }
+
                             t_filtered_euc.clear();
                             for (int i = 0; i < t_size; i++)
                             {
-                                dist_euc = sqrt(pow((std::get<4>(tuple_in[i]) - trans_average.getX()), 2.0) +
-                                                pow((std::get<5>(tuple_in[i]) - trans_average.getY()), 2.0) +
-                                                pow((std::get<6>(tuple_in[i]) - trans_average.getZ()), 2.0));
+                                dist_euc = sqrt(pow((std::get<4>(tuple_in[i]) - old_trans[0]), 2.0) +
+                                                pow((std::get<5>(tuple_in[i]) - old_trans[1]), 2.0) +
+                                                pow((std::get<6>(tuple_in[i]) - old_trans[2]), 2.0));
 
                                 if (dist_euc < euc_dist_max + euc_dist_to_sum)
                                 {
@@ -674,8 +690,35 @@ private:
                     body_origin = quatRotate(quat_average, offset_camera_body_vect_) + trans_average;
                 }
 
+                // FIR
+                if(final_fir_)
+                {
+                    transforms.push_back( std::make_tuple(  quat_body.x(),
+                                                            quat_body.y(),
+                                                            quat_body.z(),
+                                                            quat_body.w(),
+                                                            body_origin.getX(),
+                                                            body_origin.getY(),
+                                                            body_origin.getZ(),
+                                                            0,
+                                                            0 ));
+
+                    if (transforms.size() == (fir_weight_.size()+1))
+                    {
+                        transforms.erase(transforms.begin());
+                        for (int i=0; i < static_cast<int>(fir_weight_.size()); i++)
+                        {
+                            std::get<0>(transforms[i]) = fir_weight_[i];
+                        }
+                        quat_body = quaternionAverage(transforms);
+                        body_origin = translationAverage(transforms);
+                    }
+                }
+
+
                 auto end = std::chrono::high_resolution_clock::now();
                 time_msg.cycle = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
+
 
                 // Generate the message
                 msg.timestamp = time_start; // time since system start (microseconds)
@@ -761,18 +804,23 @@ private:
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_ekf_drone_broadcaster_;
     std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_static_publisher_;
 
+    geometry_msgs::msg::TransformStamped tf_ekf_drone;
+    std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> transforms;
+
     // For a better visualization create two home one with z_up (home_rviz) and one with z_down (home_map)
     std::string home_map_frame_ = "home_map";   // z_down
     std::string home_rviz_frame_ = "home_rviz"; // z_up
 
     std::string drone_frame_estimated_ = "drone";
 
+
+
     // Parameter from yaml file
-    bool debug_, graphics_on_, euc_dist_filter_, median_filter_, just_bigger_one_, just_two_size_;
+    bool debug_, graphics_on_, euc_dist_filter_, median_filter_, just_bigger_one_, just_two_size_, euc_use_ekf_, final_fir_;
     std::string fromFrameRel_;
     float roll_cam_, pitch_cam_, yaw_cam_;                           //[deg]
     tf2::Vector3 offset_camera_body_vect_, offset_body_camera_vect_; //[m]
-    std::vector<int64_t> tag_ids_, frame_weight_;
+    std::vector<int64_t> tag_ids_, frame_weight_, fir_weight_;
 
     std::vector<tf2::Vector3> tags_locations_XL_;
     std::vector<tf2::Vector3> tags_locations_L_;
