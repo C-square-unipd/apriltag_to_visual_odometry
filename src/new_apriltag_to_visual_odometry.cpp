@@ -20,6 +20,7 @@
 #include <tf2/exceptions.h>
 
 #include <eigen3/Eigen/Dense>
+#include <atvo_msgs/msg/filt_time_stamped.hpp>
 
 using std::placeholders::_1;
 using namespace std::chrono;
@@ -181,6 +182,9 @@ public:
 
         // Create VehicleVisualOdometry publisher to PX4
         publisher_ = this->create_publisher<px4_msgs::msg::VehicleVisualOdometry>("fmu/vehicle_visual_odometry/in", 10);
+
+        // Publish the cycle time
+        time_publisher_ = this->create_publisher<atvo_msgs::msg::FiltTimeStamped>("filters_time", 10);
 
         // get common timestamp
         timesync_sub_ = this->create_subscription<px4_msgs::msg::Timesync>("fmu/timesync/out", 10,
@@ -406,6 +410,7 @@ private:
         {
             geometry_msgs::msg::TransformStamped t_lower_id = msg_in.transforms[0];
             int lower_child_id = std::stoi(t_lower_id.child_frame_id.substr(5, 4));
+            auto begin = std::chrono::high_resolution_clock::now();
 
             // If the first useful transform arrived
             if (time_start == 0 || t_lower_id.header.stamp.sec == 0)
@@ -512,6 +517,8 @@ private:
                         // {
                         //     return (get<4>(a) < get<4>(b));
                         // }
+                        auto begin_median = std::chrono::high_resolution_clock::now();
+
                         std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered_med;
                         int sum = 0;
                         int all_weight = 0;
@@ -521,43 +528,6 @@ private:
                         std::sort(v_tuple[0].begin(), v_tuple[0].end(),  TupleLess<4>());
                         std::sort(v_tuple[1].begin(), v_tuple[1].end(),  TupleLess<5>());                        
                         std::sort(v_tuple[2].begin(), v_tuple[2].end(),  TupleLess<6>());
-
-                        //  if (debug_)
-                        //     {
-                        //         std::cout << "V_TUPLE_0: \n";
-                        //         for (int i = 0; i < static_cast<int>(v_tuple[0].size()); i++)
-                        //             std::cout << "\tq_x: " << std::get<0>(v_tuple[0][i]) << " "
-                        //                     << "q_y: " << std::get<1>(v_tuple[0][i]) << " "
-                        //                     << "q_z: " << std::get<2>(v_tuple[0][i]) << " "
-                        //                     << "q_w: " << std::get<3>(v_tuple[0][i]) << " "
-                        //                     << "x: " << std::get<4>(v_tuple[0][i]) << " "
-                        //                     << "y: " << std::get<5>(v_tuple[0][i]) << " "
-                        //                     << "z: " << std::get<6>(v_tuple[0][i]) << " "
-                        //                     << "w: " << std::get<7>(v_tuple[0][i]) << " "
-                        //                     << "frame: " << std::get<8>(v_tuple[0][i]) << std::endl;
-                        //         std::cout << "V_TUPLE_1: \n";
-                        //         for (int i = 0; i < static_cast<int>(v_tuple[1].size()); i++)
-                        //             std::cout << "\tq_x: " << std::get<0>(v_tuple[1][i]) << " "
-                        //                     << "q_y: " << std::get<1>(v_tuple[1][i]) << " "
-                        //                     << "q_z: " << std::get<2>(v_tuple[1][i]) << " "
-                        //                     << "q_w: " << std::get<3>(v_tuple[1][i]) << " "
-                        //                     << "x: " << std::get<4>(v_tuple[1][i]) << " "
-                        //                     << "y: " << std::get<5>(v_tuple[1][i]) << " "
-                        //                     << "z: " << std::get<6>(v_tuple[1][i]) << " "
-                        //                     << "w: " << std::get<7>(v_tuple[1][i]) << " "
-                        //                     << "frame: " << std::get<8>(v_tuple[1][i]) << std::endl;
-                        //         std::cout << "V_TUPLE_2: \n";
-                        //         for (int i = 0; i < static_cast<int>(v_tuple[2].size()); i++)
-                        //             std::cout << "\tq_x: " << std::get<0>(v_tuple[2][i]) << " "
-                        //                     << "q_y: " << std::get<1>(v_tuple[2][i]) << " "
-                        //                     << "q_z: " << std::get<2>(v_tuple[2][i]) << " "
-                        //                     << "q_w: " << std::get<3>(v_tuple[2][i]) << " "
-                        //                     << "x: " << std::get<4>(v_tuple[2][i]) << " "
-                        //                     << "y: " << std::get<5>(v_tuple[2][i]) << " "
-                        //                     << "z: " << std::get<6>(v_tuple[2][i]) << " "
-                        //                     << "w: " << std::get<7>(v_tuple[2][i]) << " "
-                        //                     << "frame: " << std::get<8>(v_tuple[2][i]) << std::endl;
-                        //  }
                         
                         // Calculate the sum of all_weight
                         for (int i = 0; i < N; i++)
@@ -585,43 +555,6 @@ private:
                                 }
                             }
                         }
-
-                        // if (debug_)
-                        //     {
-                        //         std::cout << "V_TUPLE_0 ERASE: \n";
-                        //         for (int i = 0; i < static_cast<int>(v_tuple[0].size()); i++)
-                        //             std::cout << "\tq_x: " << std::get<0>(v_tuple[0][i]) << " "
-                        //                     << "q_y: " << std::get<1>(v_tuple[0][i]) << " "
-                        //                     << "q_z: " << std::get<2>(v_tuple[0][i]) << " "
-                        //                     << "q_w: " << std::get<3>(v_tuple[0][i]) << " "
-                        //                     << "x: " << std::get<4>(v_tuple[0][i]) << " "
-                        //                     << "y: " << std::get<5>(v_tuple[0][i]) << " "
-                        //                     << "z: " << std::get<6>(v_tuple[0][i]) << " "
-                        //                     << "w: " << std::get<7>(v_tuple[0][i]) << " "
-                        //                     << "frame: " << std::get<8>(v_tuple[0][i]) << std::endl;
-                        //         std::cout << "V_TUPLE_1 ERASE: \n";
-                        //         for (int i = 0; i < static_cast<int>(v_tuple[1].size()); i++)
-                        //             std::cout << "\tq_x: " << std::get<0>(v_tuple[1][i]) << " "
-                        //                     << "q_y: " << std::get<1>(v_tuple[1][i]) << " "
-                        //                     << "q_z: " << std::get<2>(v_tuple[1][i]) << " "
-                        //                     << "q_w: " << std::get<3>(v_tuple[1][i]) << " "
-                        //                     << "x: " << std::get<4>(v_tuple[1][i]) << " "
-                        //                     << "y: " << std::get<5>(v_tuple[1][i]) << " "
-                        //                     << "z: " << std::get<6>(v_tuple[1][i]) << " "
-                        //                     << "w: " << std::get<7>(v_tuple[1][i]) << " "
-                        //                     << "frame: " << std::get<8>(v_tuple[1][i]) << std::endl;
-                        //         std::cout << "V_TUPLE_2 ERASE: \n";
-                        //         for (int i = 0; i < static_cast<int>(v_tuple[2].size()); i++)
-                        //             std::cout << "\tq_x: " << std::get<0>(v_tuple[2][i]) << " "
-                        //                     << "q_y: " << std::get<1>(v_tuple[2][i]) << " "
-                        //                     << "q_z: " << std::get<2>(v_tuple[2][i]) << " "
-                        //                     << "q_w: " << std::get<3>(v_tuple[2][i]) << " "
-                        //                     << "x: " << std::get<4>(v_tuple[2][i]) << " "
-                        //                     << "y: " << std::get<5>(v_tuple[2][i]) << " "
-                        //                     << "z: " << std::get<6>(v_tuple[2][i]) << " "
-                        //                     << "w: " << std::get<7>(v_tuple[2][i]) << " "
-                        //                     << "frame: " << std::get<8>(v_tuple[2][i]) << std::endl;
-                        //     }
 
                         t_filtered_med.clear();
                         bool zero_tuple = true;
@@ -654,12 +587,16 @@ private:
                         {
                             tuple_in = t_filtered_med;
                         }
+                        auto end_median = std::chrono::high_resolution_clock::now();
+                        time_msg.alg1 = std::chrono::duration_cast<std::chrono::nanoseconds>(end_median - begin_median).count();
 
                     }
 
                     // Erase the outliers considering the Euclidian distance
                     if (euc_dist_filter_)
                     {
+                        auto begin_euc = std::chrono::high_resolution_clock::now();
+
                         std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered_euc;
                         int t_size = static_cast<int>(tuple_in.size());
                         double dist_euc;
@@ -702,6 +639,9 @@ private:
 
                         tuple_in = t_filtered_euc;
 
+                         auto end_euc = std::chrono::high_resolution_clock::now();
+                        time_msg.alg2 = std::chrono::duration_cast<std::chrono::nanoseconds>(end_euc - begin_euc).count();
+
                         if (debug_)
                         {
                             std::cout << "Euclidean distance algorithm iteration: " << euc_dist_count << std::endl;
@@ -733,6 +673,9 @@ private:
                     quat_body = quat_average * quat_cam_to_body_x * quat_cam_to_body_y * quat_cam_to_body_z;
                     body_origin = quatRotate(quat_average, offset_camera_body_vect_) + trans_average;
                 }
+
+                auto end = std::chrono::high_resolution_clock::now();
+                time_msg.cycle = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
 
                 // Generate the message
                 msg.timestamp = time_start; // time since system start (microseconds)
@@ -797,6 +740,9 @@ private:
 
                 // Publish the VehicleVisualOdometry
                 publisher_->publish(msg);
+
+                time_msg.timestamp = t_lower_id.header.stamp.sec * 1000000 + t_lower_id.header.stamp.nanosec / 1000 + delta_time;
+                time_publisher_->publish(time_msg);
             }
         }
     }
@@ -804,6 +750,7 @@ private:
     // Declare private variables
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::Publisher<px4_msgs::msg::VehicleVisualOdometry>::SharedPtr publisher_;
+    rclcpp::Publisher<atvo_msgs::msg::FiltTimeStamped>::SharedPtr time_publisher_;
     rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr vehicle_odometry_sub_;
     rclcpp::Subscription<px4_msgs::msg::Timesync>::SharedPtr timesync_sub_;
     rclcpp::Subscription<tf2_msgs::msg::TFMessage>::SharedPtr subscription_;
@@ -833,6 +780,7 @@ private:
     std::vector<tf2::Vector3> tags_locations_S_;
 
     px4_msgs::msg::VehicleVisualOdometry msg;
+    atvo_msgs::msg::FiltTimeStamped time_msg;
 
     tf2::Quaternion quat_cam_to_body_x, quat_cam_to_body_y, quat_cam_to_body_z;
     tf2::Quaternion quat_body; // from apriltag-frame to body-frame

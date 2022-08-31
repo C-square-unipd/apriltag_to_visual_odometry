@@ -17,7 +17,7 @@ apriltag_to_visual_odometry:
 
         # filtering parameters
         just_bigger_one: false         # consider only the bigger frame 
-        euc_dist_filter: false         # compute euclidean distance between a frame location and the past pose to delete the outliers
+        euc_dist_filter: true         # compute euclidean distance between a frame location and the past pose to delete the outliers
         median_filter: true            # weighted median to delete the outliers
         just_two_size: false           # consider only the two bigger sizes of frames seen 
         euc_dist_max: 0.05             # euclidean distance limit for deleting outliers
