@@ -81,6 +81,7 @@ public:
         just_two_size_ = declare_parameter<bool>("just_two_size", false);
         euc_use_ekf_ = declare_parameter<bool>("euc_use_ekf", true);
         final_fir_ = declare_parameter<bool>("final_fir", true);
+        fir_weight_ = declare_parameter<std::vector<int64_t>>("fir_weight", std::vector<int64_t>{1, 1, 1, 1});
 
         // To publish static transforms once at startup
         if (graphics_on_)
@@ -162,6 +163,7 @@ public:
                     << "Consider only the two bigger sizes of frame: " << just_two_size_ << std::endl
                     << "Filtering using euclidean distance: " << euc_dist_filter_ << std::endl
                     << "Filtering using weighted median: " << median_filter_ << std::endl
+                    << "Final FIR: " << final_fir_ << std::endl
                     << "------------------------------------------------------\n" << std::endl;
 
                 
@@ -254,9 +256,9 @@ private:
         tf_ekf_drone.header.frame_id = home_map_frame_;
         tf_ekf_drone.child_frame_id = "ekf_drone";
 
-        tf_ekf_drone.transform.translation.x = msg->x;
-        tf_ekf_drone.transform.translation.y = msg->y;
-        tf_ekf_drone.transform.translation.z = msg->z;
+        tf_ekf_drone.transform.translation.x = msg->position[0];
+        tf_ekf_drone.transform.translation.y = msg->position[1];
+        tf_ekf_drone.transform.translation.z = msg->position[2];
 
         // VehicleOdometry msg has quaternion defined like: q{w, x, y, z} = {scalar, vect(3)}
         // tf2::Quaternion is defined like: q{x, y, z, w} = {vect(3), scalar}
@@ -708,7 +710,7 @@ private:
                         transforms.erase(transforms.begin());
                         for (int i=0; i < static_cast<int>(fir_weight_.size()); i++)
                         {
-                            std::get<0>(transforms[i]) = fir_weight_[i];
+                            std::get<7>(transforms[i]) = fir_weight_[i];
                         }
                         quat_body = quaternionAverage(transforms);
                         body_origin = translationAverage(transforms);
@@ -721,13 +723,16 @@ private:
 
 
                 // Generate the message
+                msg.quality = 100;
                 msg.timestamp = time_start; // time since system start (microseconds)
                 msg.timestamp_sample = t_lower_id.header.stamp.sec * 1000000 + t_lower_id.header.stamp.nanosec / 1000 + delta_time;
-                msg.local_frame = 0; // LOCAL_FRAME_NED=0         # NED earth-fixed frame
-                // msg.local_frame = 1;	//FRD earth-fixed frame, arbitrary heading reference
-                msg.x = body_origin.getX();
-                msg.y = body_origin.getY();
-                msg.z = body_origin.getZ();
+                msg.pose_frame = 2;
+                msg.position.at(0) = body_origin.getX();
+                msg.position.at(1) = body_origin.getY();
+                msg.position.at(2) = body_origin.getZ();
+                msg.position_variance.at(0) = NAN;
+                // msg.position_variance.at(1) = NAN;
+                // msg.position_variance.at(2) = NAN;
 
                 // VehicleVisualOdometry msg has quaternion defined like: q{w, x, y, z} = {scalar, vect(3)}
                 // tf2::Quaternion is defined like: q{x, y, z, w} = {vect(3), scalar}
@@ -735,24 +740,25 @@ private:
                 msg.q.at(1) = quat_body[0];
                 msg.q.at(2) = quat_body[1];
                 msg.q.at(3) = quat_body[2];
-                msg.q_offset.at(0) = NAN;
-                msg.pose_covariance.at(0) = NAN;
-                msg.pose_covariance.at(15) = NAN;
+                msg.orientation_variance.at(0) = NAN;
+                // msg.orientation_variance.at(1) = NAN;
+                // msg.orientation_variance.at(2) = NAN;
 
                 msg.velocity_frame = 0;
-                msg.vx = NAN;
-                msg.vy = NAN;
-                msg.vz = NAN;
-                msg.rollspeed = NAN;
-                msg.pitchspeed = NAN;
-                msg.yawspeed = NAN;
-                msg.velocity_covariance.at(0) = NAN;
-                msg.velocity_covariance.at(15) = NAN;
+                msg.velocity.at(0) = NAN;
+                // msg.velocity.at(1) = NAN;
+                // msg.velocity.at(2) = NAN;
+                msg.angular_velocity.at(0) = NAN;
+                // msg.angular_velocity.at(1) = NAN;
+                // msg.angular_velocity.at(2) = NAN;
+                msg.velocity_variance.at(0) = NAN;
+                // msg.velocity_variance.at(1) = NAN;
+                // msg.velocity_variance.at(2) = NAN;
 
                 if (debug_)
                 {
                     std::cout << "Final pose:\n"
-                              << "\t translations:\t[ x: " << msg.x << ", y: " << msg.y << ", z: " << msg.z << " ]\n"
+                              << "\t translations:\t[ x: " << msg.position.at(0) << ", y: " << msg.position.at(1) << ", z: " << msg.position.at(2) << " ]\n"
                               << "\t quaternion:\t[ w: " << msg.q[0] << ", ( x: " << msg.q[1] << ", y: " << msg.q[2] << ", z: " << msg.q[3] << ") ]\n"
                               << "-------------------------------------------------\n\n";
                 }
@@ -765,9 +771,9 @@ private:
                     tf_drone.header.frame_id = home_map_frame_;
                     tf_drone.child_frame_id = drone_frame_estimated_;
 
-                    tf_drone.transform.translation.x = msg.x;
-                    tf_drone.transform.translation.y = msg.y;
-                    tf_drone.transform.translation.z = msg.z;
+                    tf_drone.transform.translation.x = msg.position.at(0);
+                    tf_drone.transform.translation.y = msg.position.at(1);
+                    tf_drone.transform.translation.z = msg.position.at(2);
 
                     // VehicleOdometry msg has quaternion defined like: q{w, x, y, z} = {scalar, vect(3)}
                     // tf2::Quaternion is defined like: q{x, y, z, w} = {vect(3), scalar}

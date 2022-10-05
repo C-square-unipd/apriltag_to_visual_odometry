@@ -23,6 +23,8 @@ apriltag_to_visual_odometry:
         euc_dist_max: 0.05             # euclidean distance limit for deleting outliers
         euc_dist_to_increase: 0.01     # increase the euclidean distance limit if too frames are deleted
         euc_outlier_ratio:  0.3        # ratio between the number of frames that have not been deleted and all the frames seen
+        final_fir: false
+        fir_weight: [1, 1, 1, 1, 2]
 
         #Specify the apriltag_map. Example:
         #tag_ids: [first_id_XL, ... , last_id_XL, first_id_L, ... ,last_id_L, first_id_M, ... , last_id_M, first_id_S, ... , last_id_S]
