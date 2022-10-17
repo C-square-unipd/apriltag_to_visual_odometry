@@ -27,7 +27,7 @@ using namespace std::chrono;
 using namespace std::chrono_literals;
 
 u_int64_t time_start = 0;
-// u_int64_t time_start = 1;
+u_int64_t time_sync = 1;
 u_int64_t delta_time = 0;
 
 int old_number_of_frames = 0;
@@ -408,6 +408,8 @@ private:
 
     void tf_callback(tf2_msgs::msg::TFMessage::ConstSharedPtr tf_msg)
     {
+        rclcpp::Time startAlgo = this->now();
+
         const tf2_msgs::msg::TFMessage &msg_in = *tf_msg;
 
         if (msg_in.transforms.size() != 0)
@@ -723,10 +725,15 @@ private:
 
 
                 // Generate the message
-                msg.quality = 100;
-                msg.timestamp = time_start; // time since system start (microseconds)
-                msg.timestamp_sample = t_lower_id.header.stamp.sec * 1000000 + t_lower_id.header.stamp.nanosec / 1000 + delta_time;
-                msg.pose_frame = 2;
+                msg.quality = 0;
+                // msg.timestamp = time_start; // time since system start (microseconds)
+                // msg.timestamp_sample = t_lower_id.header.stamp.sec * 1000000 + t_lower_id.header.stamp.nanosec / 1000 + delta_time;
+               
+                rclcpp::Time now = this->now();
+                msg.timestamp = now.nanoseconds() / 1000;
+                msg.timestamp_sample = startAlgo.nanoseconds() / 1000;
+
+                msg.pose_frame = 1;
                 msg.position.at(0) = body_origin.getX();
                 msg.position.at(1) = body_origin.getY();
                 msg.position.at(2) = body_origin.getZ();
