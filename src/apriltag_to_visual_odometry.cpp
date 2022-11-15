@@ -74,13 +74,13 @@ public:
         // filtering parameters
         just_bigger_one_ = declare_parameter<bool>("just_bigger_one", false);
         euc_dist_filter_ = declare_parameter<bool>("euc_dist_filter", false);
-        median_filter_ = declare_parameter<bool>("median_filter", true);
+        iqr_filter_ = declare_parameter<bool>("iqr_filter", true);
         euc_dist_max = declare_parameter<double>("euc_dist_max", 0.05);
         euc_outlier_ratio = declare_parameter<double>("euc_outlier_ratio", 0.2);
         euc_dist_to_increase = declare_parameter<double>("euc_dist_to_increase", 0.01);
         just_two_size_ = declare_parameter<bool>("just_two_size", false);
         euc_use_ekf_ = declare_parameter<bool>("euc_use_ekf", true);
-        final_fir_ = declare_parameter<bool>("final_fir", true);
+        fir_ = declare_parameter<bool>("fir", true);
         fir_weight_ = declare_parameter<std::vector<int64_t>>("fir_weight", std::vector<int64_t>{1, 1, 1, 1});
 
         // To publish static transforms once at startup
@@ -162,8 +162,8 @@ public:
                     << "Consider only the bigger frame: " << just_bigger_one_ << std::endl
                     << "Consider only the two bigger sizes of frame: " << just_two_size_ << std::endl
                     << "Filtering using euclidean distance: " << euc_dist_filter_ << std::endl
-                    << "Filtering using weighted median: " << median_filter_ << std::endl
-                    << "Final FIR: " << final_fir_ << std::endl
+                    << "Filtering using weighted median: " << iqr_filter_ << std::endl
+                    << "Final FIR: " << fir_ << std::endl
                     << "------------------------------------------------------\n" << std::endl;
 
                 
@@ -321,7 +321,7 @@ private:
         return offset_home_to_apriltag;
     }
 
-    tf2::Quaternion quaternionAverage(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t)
+    tf2::Quaternion quaternionAverage(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
     {
 
         // first build a 4x4 matrix which is the elementwise sum of the product of each quaternion with itself
@@ -381,7 +381,7 @@ private:
         }
     };
 
-    tf2::Vector3 translationAverage(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t)
+    tf2::Vector3 translationAverage(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
     {
         double w_i = 0;
         double w_sum = 0;
@@ -406,6 +406,194 @@ private:
         return v_average;
     }
 
+    // Functions to remove outliers
+    void just_two_size(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
+    {
+        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered_two;
+        t_filtered_two.clear();
+        int bigger_weight = get_weight(lower_child_id);
+        int weight_limit = sqrt(bigger_weight); // WARNING: only with quadratic weight
+        
+        for (int i = 0; i < static_cast<int>(t.size()); i++)
+        {
+            if (std::get<7>(t[i]) >= weight_limit)
+            {
+                t_filtered_two.push_back(t[i]);
+            }
+        }   
+        t = t_filtered_two;
+    }
+
+    void interquartile_range(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
+    {
+        auto begin_median = std::chrono::high_resolution_clock::now();
+
+        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered_med;
+        int sum = 0;
+        int all_weight = 0;
+        int N = static_cast<int>(t.size());
+        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> v_tuple[3] = {t, t, t};
+
+        std::sort(v_tuple[0].begin(), v_tuple[0].end(),  TupleLess<4>());
+        std::sort(v_tuple[1].begin(), v_tuple[1].end(),  TupleLess<5>());                        
+        std::sort(v_tuple[2].begin(), v_tuple[2].end(),  TupleLess<6>());
+        
+        // Calculate the sum of all_weight
+        for (int i = 0; i < N; i++)
+            {
+                all_weight += std::get<7>(v_tuple[0][i]);
+            }
+
+        // Compute the weighted median and eraser the outliers for x y z
+        for (int index = 0; index < 3; index++)
+        {   
+            sum = 0;
+            int i = 0;
+            int size = static_cast<int>(t.size());
+            while (i != size)
+            {
+                sum += std::get<7>(v_tuple[index][i]);
+                if ((sum < all_weight / 8) || (sum > all_weight * 7 / 8))
+                {
+                    v_tuple[index].erase(v_tuple[index].begin() + i);
+                    size--;
+                }
+                else
+                {
+                    i++;
+                }
+            }
+        }
+
+        t_filtered_med.clear();
+        bool zero_tuple = true;
+
+        // Keep only frames that appears in all 3 tuples
+        int frame_i = 0;
+        for (int i = 0; i < static_cast<int>(v_tuple[0].size()); i++)
+        {
+            frame_i = std::get<8>(v_tuple[0][i]);
+
+            for (int j = 0; j < static_cast<int>(v_tuple[1].size()); j++)
+            {
+                if (std::get<8>(v_tuple[1][j]) == frame_i)
+                {
+                    for (int k = 0; k < static_cast<int>(v_tuple[2].size()); k++)
+                    {
+                        if (std::get<8>(v_tuple[2][k]) == frame_i)
+                        {
+                            t_filtered_med.push_back(v_tuple[0][i]);
+                            zero_tuple = false;
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (!zero_tuple)
+        {
+            t = t_filtered_med;
+        }
+        auto end_median = std::chrono::high_resolution_clock::now();
+        time_msg.alg1 = std::chrono::duration_cast<std::chrono::nanoseconds>(end_median - begin_median).count();
+    }
+
+    void euclidean_distance(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
+    {
+        auto begin_euc = std::chrono::high_resolution_clock::now();
+
+        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered_euc;
+        int t_size = static_cast<int>(t.size());
+        double dist_euc;
+        bool find_outliers = true;
+        double euc_dist_to_sum = 0;
+        int euc_dist_count = 0;
+        double old_trans[3];
+
+        while (find_outliers)
+        {
+            if (euc_use_ekf_)
+            {
+                old_trans[0] = tf_ekf_drone.transform.translation.x;
+                old_trans[1] = tf_ekf_drone.transform.translation.y;
+                old_trans[2] = tf_ekf_drone.transform.translation.z;
+            }
+            else
+            {
+                old_trans[0] = trans_average.getX();
+                old_trans[1] = trans_average.getY();
+                old_trans[2] = trans_average.getZ();
+            }
+
+            t_filtered_euc.clear();
+            for (int i = 0; i < t_size; i++)
+            {
+                dist_euc = sqrt(pow((std::get<4>(t[i]) - old_trans[0]), 2.0) +
+                                pow((std::get<5>(t[i]) - old_trans[1]), 2.0) +
+                                pow((std::get<6>(t[i]) - old_trans[2]), 2.0));
+
+                if (dist_euc < euc_dist_max + euc_dist_to_sum)
+                {
+                    t_filtered_euc.push_back(t[i]);
+                }
+            }
+
+            euc_dist_count++;
+
+            if ((static_cast<double>(t_filtered_euc.size()) / t_size) < euc_outlier_ratio)
+            {
+                euc_dist_to_sum += euc_dist_to_increase;
+            }
+            else
+            {
+                find_outliers = false;
+            }
+
+            if (euc_dist_count > 30)
+            {
+                find_outliers = false;
+                t_filtered_euc = t;
+            }
+        }
+
+        t = t_filtered_euc;
+
+        auto end_euc = std::chrono::high_resolution_clock::now();
+        time_msg.alg2 = std::chrono::duration_cast<std::chrono::nanoseconds>(end_euc - begin_euc).count();
+
+        if (debug_)
+        {
+            std::cout << "Euclidean distance algorithm iteration: " << euc_dist_count << std::endl;
+        }
+    }
+
+    // moving average filter
+    void fir()
+    {
+        transforms.push_back( std::make_tuple(  quat_body.x(),
+                                                quat_body.y(),
+                                                quat_body.z(),
+                                                quat_body.w(),
+                                                body_origin.getX(),
+                                                body_origin.getY(),
+                                                body_origin.getZ(),
+                                                0,
+                                                0 ));
+
+        if (transforms.size() == (fir_weight_.size()+1))
+        {
+            transforms.erase(transforms.begin());
+            for (int i=0; i < static_cast<int>(fir_weight_.size()); i++)
+            {
+                std::get<7>(transforms[i]) = fir_weight_[i];
+            }
+            quat_body = quaternionAverage(transforms);
+            body_origin = translationAverage(transforms);
+        }
+    }
+
     void tf_callback(tf2_msgs::msg::TFMessage::ConstSharedPtr tf_msg)
     {
         rclcpp::Time startAlgo = this->now();
@@ -415,8 +603,10 @@ private:
         if (msg_in.transforms.size() != 0)
         {
             geometry_msgs::msg::TransformStamped t_lower_id = msg_in.transforms[0];
-            int lower_child_id = std::stoi(t_lower_id.child_frame_id.substr(5, 4));
+            lower_child_id = std::stoi(t_lower_id.child_frame_id.substr(5, 4));
             auto begin = std::chrono::high_resolution_clock::now();
+
+            
 
             // If the first useful transform arrived
             if (time_start == 0 || t_lower_id.header.stamp.sec == 0)
@@ -424,9 +614,7 @@ private:
                 // calculate the delta time between PX4 and t messages for synchronizations
                 // update time_start from timestamps_ (SYNCED)
                 time_start = static_cast<u_int64_t>(timestamp_.load());
-                std::cout << "timestamp " << time_start << std::endl;
                 delta_time = time_start - static_cast<u_int64_t>(t_lower_id.header.stamp.sec * 1000000 + t_lower_id.header.stamp.nanosec / 1000);
-                RCLCPP_INFO(this->get_logger(), "Time start at time: %d and the delta time for synchronization is: %d", time_start, delta_time);
 
                 // Set the first transform based on the bigger apriltag seen
                 trans_average[0] = (t_lower_id.transform.translation.x + get_offset(lower_child_id)[0]);
@@ -435,6 +623,7 @@ private:
             }
             else
             {
+
                 // Considering just the bigger frame, the one with the lower ID
                 if (just_bigger_one_)
                 {
@@ -500,172 +689,19 @@ private:
                     // Consider the two bigger size of frames
                     if (just_two_size_)
                     {
-                        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered_two;
-                        t_filtered_two.clear();
-                        int bigger_weight = get_weight(lower_child_id);
-                        int weight_limit = sqrt(bigger_weight); // WARNING: only with quadratic weight
-                        
-                        for (int i = 0; i < static_cast<int>(tuple_in.size()); i++)
-                        {
-                            if (std::get<7>(tuple_in[i]) >= weight_limit)
-                            {
-                                t_filtered_two.push_back(tuple_in[i]);
-                            }
-                        }   
-                        tuple_in = t_filtered_two;
+                        just_two_size(tuple_in);
                     }
 
                     // Filtering by weighted median of the translations
-                    if (median_filter_)
+                    if (iqr_filter_)
                     {
-                        // bool sortbysec( const tuple<double, double, double, double, double, double, double, int, int>& a,
-                        //                 const tuple<double, double, double, double, double, double, double, int, int>& b)
-                        // {
-                        //     return (get<4>(a) < get<4>(b));
-                        // }
-                        auto begin_median = std::chrono::high_resolution_clock::now();
-
-                        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered_med;
-                        int sum = 0;
-                        int all_weight = 0;
-                        int N = static_cast<int>(tuple_in.size());
-                        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> v_tuple[3] = {tuple_in, tuple_in, tuple_in};
-
-                        std::sort(v_tuple[0].begin(), v_tuple[0].end(),  TupleLess<4>());
-                        std::sort(v_tuple[1].begin(), v_tuple[1].end(),  TupleLess<5>());                        
-                        std::sort(v_tuple[2].begin(), v_tuple[2].end(),  TupleLess<6>());
-                        
-                        // Calculate the sum of all_weight
-                        for (int i = 0; i < N; i++)
-                            {
-                                all_weight += std::get<7>(v_tuple[0][i]);
-                            }
-
-                        // Compute the weighted median and eraser the outliers for x y z
-                        for (int index = 0; index < 3; index++)
-                        {   
-                            sum = 0;
-                            int i = 0;
-                            int size = static_cast<int>(tuple_in.size());
-                            while (i != size)
-                            {
-                                sum += std::get<7>(v_tuple[index][i]);
-                                if ((sum < all_weight / 8) || (sum > all_weight * 7 / 8))
-                                {
-                                    v_tuple[index].erase(v_tuple[index].begin() + i);
-                                    size--;
-                                }
-                                else
-                                {
-                                    i++;
-                                }
-                            }
-                        }
-
-                        t_filtered_med.clear();
-                        bool zero_tuple = true;
-
-                        // Keep only frames that appears in all 3 tuples
-                        int frame_i = 0;
-                        for (int i = 0; i < static_cast<int>(v_tuple[0].size()); i++)
-                        {
-                            frame_i = std::get<8>(v_tuple[0][i]);
-
-                            for (int j = 0; j < static_cast<int>(v_tuple[1].size()); j++)
-                            {
-                                if (std::get<8>(v_tuple[1][j]) == frame_i)
-                                {
-                                    for (int k = 0; k < static_cast<int>(v_tuple[2].size()); k++)
-                                    {
-                                        if (std::get<8>(v_tuple[2][k]) == frame_i)
-                                        {
-                                            t_filtered_med.push_back(v_tuple[0][i]);
-                                            zero_tuple = false;
-                                            break;
-                                        }
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (!zero_tuple)
-                        {
-                            tuple_in = t_filtered_med;
-                        }
-                        auto end_median = std::chrono::high_resolution_clock::now();
-                        time_msg.alg1 = std::chrono::duration_cast<std::chrono::nanoseconds>(end_median - begin_median).count();
-
+                        interquartile_range(tuple_in);
                     }
 
                     // Erase the outliers considering the Euclidian distance
                     if (euc_dist_filter_)
                     {
-                        auto begin_euc = std::chrono::high_resolution_clock::now();
-
-                        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered_euc;
-                        int t_size = static_cast<int>(tuple_in.size());
-                        double dist_euc;
-                        bool find_outliers = true;
-                        double euc_dist_to_sum = 0;
-                        int euc_dist_count = 0;
-                        double old_trans[3];
-
-                        while (find_outliers)
-                        {
-                            if (euc_use_ekf_)
-                            {
-                                old_trans[0] = tf_ekf_drone.transform.translation.x;
-                                old_trans[1] = tf_ekf_drone.transform.translation.y;
-                                old_trans[2] = tf_ekf_drone.transform.translation.z;
-                            }
-                            else
-                            {
-                                old_trans[0] = trans_average.getX();
-                                old_trans[1] = trans_average.getY();
-                                old_trans[2] = trans_average.getZ();
-                            }
-
-                            t_filtered_euc.clear();
-                            for (int i = 0; i < t_size; i++)
-                            {
-                                dist_euc = sqrt(pow((std::get<4>(tuple_in[i]) - old_trans[0]), 2.0) +
-                                                pow((std::get<5>(tuple_in[i]) - old_trans[1]), 2.0) +
-                                                pow((std::get<6>(tuple_in[i]) - old_trans[2]), 2.0));
-
-                                if (dist_euc < euc_dist_max + euc_dist_to_sum)
-                                {
-                                    t_filtered_euc.push_back(tuple_in[i]);
-                                }
-                            }
-
-                            euc_dist_count++;
-
-                            if ((static_cast<double>(t_filtered_euc.size()) / t_size) < euc_outlier_ratio)
-                            {
-                                euc_dist_to_sum += euc_dist_to_increase;
-                            }
-                            else
-                            {
-                                find_outliers = false;
-                            }
-
-                            if (euc_dist_count > 30)
-                            {
-                                find_outliers = false;
-                                t_filtered_euc = tuple_in;
-                            }
-                        }
-
-                        tuple_in = t_filtered_euc;
-
-                         auto end_euc = std::chrono::high_resolution_clock::now();
-                        time_msg.alg2 = std::chrono::duration_cast<std::chrono::nanoseconds>(end_euc - begin_euc).count();
-
-                        if (debug_)
-                        {
-                            std::cout << "Euclidean distance algorithm iteration: " << euc_dist_count << std::endl;
-                        }
+                        euclidean_distance(tuple_in);
                     }
 
                     if (debug_)
@@ -695,28 +731,9 @@ private:
                 }
 
                 // FIR
-                if(final_fir_)
+                if(fir_)
                 {
-                    transforms.push_back( std::make_tuple(  quat_body.x(),
-                                                            quat_body.y(),
-                                                            quat_body.z(),
-                                                            quat_body.w(),
-                                                            body_origin.getX(),
-                                                            body_origin.getY(),
-                                                            body_origin.getZ(),
-                                                            0,
-                                                            0 ));
-
-                    if (transforms.size() == (fir_weight_.size()+1))
-                    {
-                        transforms.erase(transforms.begin());
-                        for (int i=0; i < static_cast<int>(fir_weight_.size()); i++)
-                        {
-                            std::get<7>(transforms[i]) = fir_weight_[i];
-                        }
-                        quat_body = quaternionAverage(transforms);
-                        body_origin = translationAverage(transforms);
-                    }
+                    fir();
                 }
 
 
@@ -823,13 +840,10 @@ private:
     // For a better visualization create two home one with z_up (home_rviz) and one with z_down (home_map)
     std::string home_map_frame_ = "home_map";   // z_down
     std::string home_rviz_frame_ = "home_rviz"; // z_up
-
     std::string drone_frame_estimated_ = "drone";
 
-
-
     // Parameter from yaml file
-    bool debug_, graphics_on_, euc_dist_filter_, median_filter_, just_bigger_one_, just_two_size_, euc_use_ekf_, final_fir_;
+    bool debug_, graphics_on_, euc_dist_filter_, iqr_filter_, just_bigger_one_, just_two_size_, euc_use_ekf_, fir_;
     std::string fromFrameRel_;
     float roll_cam_, pitch_cam_, yaw_cam_;                           //[deg]
     tf2::Vector3 offset_camera_body_vect_, offset_body_camera_vect_; //[m]
@@ -840,6 +854,8 @@ private:
     std::vector<tf2::Vector3> tags_locations_M_;
     std::vector<tf2::Vector3> tags_locations_S_;
 
+    int lower_child_id;
+    int msgs_count_;
     px4_msgs::msg::VehicleVisualOdometry msg;
     atvo_msgs::msg::FiltTimeStamped time_msg;
 

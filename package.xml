@@ -2,9 +2,9 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>apriltag_to_visual_odometry</name>
-  <version>0.0.0</version>
+  <version>1.0.0</version>
   <description>Transform the tf from apriltag into visual odometry</description>
-  <maintainer email="martino.segattini@studenti.unipd.it">martino</maintainer>
+  <maintainer email="massimiliamo.bertoni@phd.unipd.it">MaxBertus</maintainer>
   <license>License Apache 2.0</license>
 
   <depend>rclcpp</depend>

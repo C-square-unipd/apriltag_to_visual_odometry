@@ -1,6 +1,6 @@
 apriltag_to_visual_odometry:
     ros__parameters:
-        debug: true    # To see more feedback on the terminal
+        debug: false    # To see more feedback on the terminal
         graphics_on: true   # To see the apriltag-map, position estimated from Apriltag(drone) and position estim>
         #Camera parameters
         # camera_frame: "camera_color_optical_frame" # ***HR01***
@@ -16,13 +16,13 @@ apriltag_to_visual_odometry:
 
         # filtering parameters
         just_bigger_one: false          # consider only the bigger frame 
-        euc_dist_filter: true          # compute euclidean distance between a frame location and the past pose to delete the outliers
-        median_filter: true           # weighted median to delete the outliers
+        euc_dist_filter: false          # compute euclidean distance between a frame location and the past pose to delete the outliers
+        iqr_filter: true                # weighted iqr filter to delete the outliers
         just_two_size: false           # consider only the two bigger sizes of frames seen 
         euc_dist_max: 0.05             # euclidean distance limit for deleting outliers
         euc_dist_to_increase: 0.01     # increase the euclidean distance limit if too frames are deleted
         euc_outlier_ratio:  0.3        # ratio between the number of frames that have not been deleted and all the frames seen
-        final_fir: true                
+        fir: true                
         fir_weight: [1, 1, 1, 1, 1]
 
         #Specify the apriltag_map. Example:
