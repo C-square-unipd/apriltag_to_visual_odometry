@@ -66,9 +66,11 @@ The best accuracy has been guarantee using the iqr_filter and the fir, as specif
 
 ## Dependencies
 This ROS2 node needs the following packages to run:
-- [apriltag](https://github.com/C-square-unipd/apriltag);
-- [apriltag_ros](https://github.com/C-square-unipd/apriltag_ros);
-- [apriltag_msgs](https://github.com/C-square-unipd/apriltag_msgs);
-- [px4_msgs](https://github.com/C-square-unipd/px4_msgs);
-- [Eigen3](https://eigen.tuxfamily.org/index.php?title=Main_Page
-).
+- [apriltag](https://github.com/C-square-unipd/apriltag) TO CHECK;
+- [apriltag_ros](https://github.com/C-square-unipd/apriltag_ros) TO CHECK;
+- apriltag_viz
+- [apriltag_msgs](https://github.com/C-square-unipd/apriltag_msgs) TO CHECK;
+- [px4_msgs](https://github.com/C-square-unipd/px4_msgs) OK;
+- px4_ros_com TO ADD
+- PX4 Autopilot TO ADD
+- [Eigen3 3.4.0](https://eigen.tuxfamily.org/index.php?title=Main_Page OK.
