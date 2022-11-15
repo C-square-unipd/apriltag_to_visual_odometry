@@ -26,11 +26,6 @@ using std::placeholders::_1;
 using namespace std::chrono;
 using namespace std::chrono_literals;
 
-u_int64_t time_start = 0;
-u_int64_t time_sync = 1;
-u_int64_t delta_time = 0;
-
-int old_number_of_frames = 0;
 
 // Odometry publisher, "Node" subclass
 class OdometryPublisher : public rclcpp::Node
@@ -82,6 +77,12 @@ public:
         euc_use_ekf_ = declare_parameter<bool>("euc_use_ekf", true);
         fir_ = declare_parameter<bool>("fir", true);
         fir_weight_ = declare_parameter<std::vector<int64_t>>("fir_weight", std::vector<int64_t>{1, 1, 1, 1});
+
+        // Counter
+        msgs_count_ = 0;
+        msgs_count_old = 0;
+        time_start_ = 0;
+        time_count_= 0;
 
         // To publish static transforms once at startup
         if (graphics_on_)
@@ -604,17 +605,13 @@ private:
         {
             geometry_msgs::msg::TransformStamped t_lower_id = msg_in.transforms[0];
             lower_child_id = std::stoi(t_lower_id.child_frame_id.substr(5, 4));
-            auto begin = std::chrono::high_resolution_clock::now();
-
-            
 
             // If the first useful transform arrived
-            if (time_start == 0 || t_lower_id.header.stamp.sec == 0)
+            if (time_start_ == 0 || t_lower_id.header.stamp.sec == 0)
             {
-                // calculate the delta time between PX4 and t messages for synchronizations
-                // update time_start from timestamps_ (SYNCED)
-                time_start = static_cast<u_int64_t>(timestamp_.load());
-                delta_time = time_start - static_cast<u_int64_t>(t_lower_id.header.stamp.sec * 1000000 + t_lower_id.header.stamp.nanosec / 1000);
+                // update time_start_
+                time_start_ = startAlgo.seconds();
+                time_count_ = startAlgo.seconds();
 
                 // Set the first transform based on the bigger apriltag seen
                 trans_average[0] = (t_lower_id.transform.translation.x + get_offset(lower_child_id)[0]);
@@ -736,15 +733,8 @@ private:
                     fir();
                 }
 
-
-                auto end = std::chrono::high_resolution_clock::now();
-                time_msg.cycle = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
-
-
                 // Generate the message
                 msg.quality = 0;
-                // msg.timestamp = time_start; // time since system start (microseconds)
-                // msg.timestamp_sample = t_lower_id.header.stamp.sec * 1000000 + t_lower_id.header.stamp.nanosec / 1000 + delta_time;
                
                 rclcpp::Time now = this->now();
                 msg.timestamp = now.nanoseconds() / 1000;
@@ -813,9 +803,20 @@ private:
 
                 // Publish the VehicleVisualOdometry
                 publisher_->publish(msg);
-
-                time_msg.timestamp = t_lower_id.header.stamp.sec * 1000000 + t_lower_id.header.stamp.nanosec / 1000 + delta_time;
-                time_publisher_->publish(time_msg);
+                
+                // Print stats every five seconds 
+                msgs_count_++;
+                if(startAlgo.seconds() - time_count_ > 5)
+                {
+                    std::cout << "Messages received:\t" << msgs_count_ << std::endl
+                              << "Messages frequency:\t" << (msgs_count_-msgs_count_old)/(startAlgo.seconds() - time_count_) 
+                              << " Hz" << std::endl << "Pose:\n"
+                              << "\t translations:\t[ x: " << msg.position.at(0) << ", y: " << msg.position.at(1) << ", z: " << msg.position.at(2) << " ]\n"
+                              << "\t quaternion:\t[ w: " << msg.q[0] << ", ( x: " << msg.q[1] << ", y: " << msg.q[2] << ", z: " << msg.q[3] << ") ]\n"
+                              << "----------------------------------------------------------------------------------------" << std::endl;
+                    msgs_count_old = msgs_count_;
+                    time_count_ = startAlgo.seconds();
+                }
             }
         }
     }
@@ -855,7 +856,9 @@ private:
     std::vector<tf2::Vector3> tags_locations_S_;
 
     int lower_child_id;
-    int msgs_count_;
+    int msgs_count_, msgs_count_old;
+    int time_start_, time_count_;
+
     px4_msgs::msg::VehicleVisualOdometry msg;
     atvo_msgs::msg::FiltTimeStamped time_msg;
 
