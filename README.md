@@ -62,15 +62,14 @@ tags_locations_M: [0.6205, 0.073, 0.803, 0.073]
 tags_locations_S: [0.53, 0.0735, 0.7125, 0.0735]
 ```
 
-The best accuracy has been guarantee using the iqr_filter and the fir, as specified in the example configuration file.
+The best accuracy has been guaranteed using the iqr_filter and the fir, as specified in the example configuration file.
 
 ## Dependencies
 This ROS2 node needs the following packages to run:
-- [apriltag](https://github.com/C-square-unipd/apriltag) TO CHECK;
-- [apriltag_ros](https://github.com/C-square-unipd/apriltag_ros) TO CHECK;
-- apriltag_viz
-- [apriltag_msgs](https://github.com/C-square-unipd/apriltag_msgs) TO CHECK;
-- [px4_msgs](https://github.com/C-square-unipd/px4_msgs) OK;
-- px4_ros_com TO ADD
-- PX4 Autopilot TO ADD
-- [Eigen3 3.4.0](https://eigen.tuxfamily.org/index.php?title=Main_Page OK.
+- [apriltag](https://github.com/C-square-unipd/apriltag);
+- [apriltag_ros](https://github.com/C-square-unipd/apriltag_ros);
+- apriltag_viz (da capire se serve davvero)
+- [apriltag_msgs](https://github.com/C-square-unipd/apriltag_msgs);
+- [px4_msgs](https://github.com/C-square-unipd/px4_msgs);
+- [px4_ros_com](https://github.com/C-square-unipd/px4_ros_com);
+- [Eigen3 3.4.0](https://eigen.tuxfamily.org/index.php?title=Main_Page).
