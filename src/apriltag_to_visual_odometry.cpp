@@ -20,7 +20,6 @@
 #include <tf2/exceptions.h>
 
 #include <eigen3/Eigen/Dense>
-#include <atvo_msgs/msg/filt_time_stamped.hpp>
 
 using std::placeholders::_1;
 using namespace std::chrono;
@@ -188,9 +187,6 @@ public:
 
         // Create VehicleVisualOdometry publisher to PX4
         publisher_ = this->create_publisher<px4_msgs::msg::VehicleVisualOdometry>("fmu/vehicle_visual_odometry/in", 10);
-
-        // Publish the cycle time
-        time_publisher_ = this->create_publisher<atvo_msgs::msg::FiltTimeStamped>("filters_time", 10);
 
         // get common timestamp
         timesync_sub_ = this->create_subscription<px4_msgs::msg::Timesync>("fmu/timesync/out", 10,
@@ -427,8 +423,6 @@ private:
 
     void interquartile_range(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
     {
-        auto begin_median = std::chrono::high_resolution_clock::now();
-
         std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered_med;
         int sum = 0;
         int all_weight = 0;
@@ -497,14 +491,10 @@ private:
         {
             t = t_filtered_med;
         }
-        auto end_median = std::chrono::high_resolution_clock::now();
-        time_msg.alg1 = std::chrono::duration_cast<std::chrono::nanoseconds>(end_median - begin_median).count();
     }
 
     void euclidean_distance(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
     {
-        auto begin_euc = std::chrono::high_resolution_clock::now();
-
         std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered_euc;
         int t_size = static_cast<int>(t.size());
         double dist_euc;
@@ -560,9 +550,6 @@ private:
         }
 
         t = t_filtered_euc;
-
-        auto end_euc = std::chrono::high_resolution_clock::now();
-        time_msg.alg2 = std::chrono::duration_cast<std::chrono::nanoseconds>(end_euc - begin_euc).count();
 
         if (debug_)
         {
@@ -824,7 +811,6 @@ private:
     // Declare private variables
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::Publisher<px4_msgs::msg::VehicleVisualOdometry>::SharedPtr publisher_;
-    rclcpp::Publisher<atvo_msgs::msg::FiltTimeStamped>::SharedPtr time_publisher_;
     rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr vehicle_odometry_sub_;
     rclcpp::Subscription<px4_msgs::msg::Timesync>::SharedPtr timesync_sub_;
     rclcpp::Subscription<tf2_msgs::msg::TFMessage>::SharedPtr subscription_;
@@ -860,7 +846,6 @@ private:
     int time_start_, time_count_;
 
     px4_msgs::msg::VehicleVisualOdometry msg;
-    atvo_msgs::msg::FiltTimeStamped time_msg;
 
     tf2::Quaternion quat_cam_to_body_x, quat_cam_to_body_y, quat_cam_to_body_z;
     tf2::Quaternion quat_body; // from apriltag-frame to body-frame

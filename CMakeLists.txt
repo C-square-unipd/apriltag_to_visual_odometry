@@ -24,7 +24,6 @@ find_package(geometry_msgs REQUIRED)
 find_package(px4_msgs REQUIRED)
 find_package(apriltag_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
-find_package(atvo_msgs REQUIRED)
 
 add_executable(apriltag_to_visual_odometry src/apriltag_to_visual_odometry.cpp)
 ament_target_dependencies(
@@ -34,7 +33,6 @@ ament_target_dependencies(
         rclcpp
         tf2_ros
         Eigen3
-        atvo_msgs
 )
 
 install(TARGETS
