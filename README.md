@@ -68,7 +68,6 @@ The best accuracy has been guaranteed using the iqr_filter and the fir, as speci
 This ROS2 node needs the following packages to run:
 - [apriltag](https://github.com/C-square-unipd/apriltag);
 - [apriltag_ros](https://github.com/C-square-unipd/apriltag_ros);
-- apriltag_viz (da capire se serve davvero)
 - [apriltag_msgs](https://github.com/C-square-unipd/apriltag_msgs);
 - [px4_msgs](https://github.com/C-square-unipd/px4_msgs);
 - [px4_ros_com](https://github.com/C-square-unipd/px4_ros_com);
