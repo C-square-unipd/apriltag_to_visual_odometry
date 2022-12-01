@@ -69,6 +69,7 @@ public:
         just_bigger_one_ = declare_parameter<bool>("just_bigger_one", false);
         euc_dist_filter_ = declare_parameter<bool>("euc_dist_filter", false);
         iqr_filter_ = declare_parameter<bool>("iqr_filter", true);
+        iqr_boundaries = declare_parameter<double>("iqr_boundaries", 0.125);
         euc_dist_max = declare_parameter<double>("euc_dist_max", 0.05);
         euc_outlier_ratio = declare_parameter<double>("euc_outlier_ratio", 0.2);
         euc_dist_to_increase = declare_parameter<double>("euc_dist_to_increase", 0.01);
@@ -163,6 +164,7 @@ public:
                     << "Consider only the two bigger sizes of frame: " << just_two_size_ << std::endl
                     << "Filtering using euclidean distance: " << euc_dist_filter_ << std::endl
                     << "Filtering using weighted median: " << iqr_filter_ << std::endl
+                    << "Threshold using weighted median: " << iqr_boundaries << std::endl
                     << "Final FIR: " << fir_ << std::endl
                     << "------------------------------------------------------\n" << std::endl;
 
@@ -448,7 +450,7 @@ private:
             while (i != size)
             {
                 sum += std::get<7>(v_tuple[index][i]);
-                if ((sum < all_weight / 8) || (sum > all_weight * 7 / 8))
+                if ((sum < all_weight * iqr_boundaries) || (sum > all_weight * (1-iqr_boundaries)))
                 {
                     v_tuple[index].erase(v_tuple[index].begin() + i);
                     size--;
@@ -864,7 +866,7 @@ private:
     tf2::Quaternion quat_cam;  // from apriltag-frame to camera-frame
     tf2::Quaternion quat_average;
     tf2::Vector3 camera_origin, body_origin, trans_average;
-    double euc_dist_max, euc_outlier_ratio, euc_dist_to_increase;
+    double euc_dist_max, euc_outlier_ratio, euc_dist_to_increase, iqr_boundaries;
 };
 
 int main(int argc, char *argv[])

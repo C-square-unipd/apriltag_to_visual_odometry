@@ -11,8 +11,8 @@ apriltag_to_visual_odometry:
         yaw_cam: 90     # [deg] ***QR01***
         #offset_camera_body: [ 0.035, 0.15, -0.1 ]       # [m]   ***HR01***
         #offset_body_camera: [ 0.15, -0.035, 0.1 ]       # [m]   ***HR01***
-        offset_camera_body: [ 0, -0.105, 0 ]       # [m] ***QR01***
-        offset_body_camera: [ 0.105, 0, 0 ]       # [m]  ***QR01***
+        offset_camera_body: [ 0, -0.12, 0.1 ]       # [m] ***QR01***
+        offset_body_camera: [ 0.12, 0, -0.1 ]       # [m]  ***QR01***
 
         # filtering parameters
         just_bigger_one: false          # consider only the bigger frame 
@@ -22,6 +22,7 @@ apriltag_to_visual_odometry:
         euc_dist_max: 0.05             # euclidean distance limit for deleting outliers
         euc_dist_to_increase: 0.01     # increase the euclidean distance limit if too frames are deleted
         euc_outlier_ratio:  0.3        # ratio between the number of frames that have not been deleted and all the frames seen
+        iqr_boundaries: 0.125          # Inferior threshold for exclusion of detected tf with euclidian algorithm
         fir: true                
         fir_weight: [1, 1, 1, 1, 1]
 
