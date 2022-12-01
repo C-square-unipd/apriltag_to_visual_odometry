@@ -726,6 +726,13 @@ private:
                 rclcpp::Time now = this->now();
                 msg.timestamp = now.nanoseconds() / 1000;
                 msg.timestamp_sample = startAlgo.nanoseconds() / 1000;
+                unsigned long sec_to_micro = (unsigned long) t_lower_id.header.stamp.sec;
+                sec_to_micro = sec_to_micro * 1000000;
+                unsigned long nano_to_micro = (unsigned long) t_lower_id.header.stamp.nanosec;
+                nano_to_micro = nano_to_micro / 1000;
+                unsigned long timeDetection = sec_to_micro + nano_to_micro;
+                //msg.timestamp_sample = sec_to_micro + nano_to_micro;
+                // msg.timestamp_sample = now.nanoseconds() / 1000;
 
                 msg.pose_frame = 1;
                 msg.position.at(0) = body_origin.getX();
@@ -801,6 +808,11 @@ private:
                               << "\t translations:\t[ x: " << msg.position.at(0) << ", y: " << msg.position.at(1) << ", z: " << msg.position.at(2) << " ]\n"
                               << "\t quaternion:\t[ w: " << msg.q[0] << ", ( x: " << msg.q[1] << ", y: " << msg.q[2] << ", z: " << msg.q[3] << ") ]\n"
                               << "----------------------------------------------------------------------------------------" << std::endl;
+                    std::cout << "Actual time:\t" << now.nanoseconds() / 1000 << "\n"
+                              << "Start algo t:\t"  << startAlgo.nanoseconds() / 1000 << "\n"
+                              << "Detection t:\t"  <<  timeDetection << "\n"
+                              << "Act - algo:" << now.nanoseconds() / 1000 - startAlgo.nanoseconds() / 1000 << "\n"
+                              << "Act - det:" << now.nanoseconds() / 1000 - timeDetection << std::endl;
                     msgs_count_old = msgs_count_;
                     time_count_ = startAlgo.seconds();
                 }
