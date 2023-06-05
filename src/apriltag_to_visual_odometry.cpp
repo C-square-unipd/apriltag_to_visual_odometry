@@ -1,11 +1,8 @@
 #include <rclcpp/rclcpp.hpp>
 #include <tf2_ros/static_transform_broadcaster.h>
 #include <tf2_ros/transform_broadcaster.h>
-
 #include <tf2/LinearMath/Quaternion.h>
-#include <px4_msgs/msg/vehicle_visual_odometry.hpp>
 #include <px4_msgs/msg/vehicle_odometry.hpp>
-#include <px4_msgs/msg/timesync.hpp>
 #include <std_msgs/msg/string.hpp>
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
@@ -182,18 +179,18 @@ public:
 
             // vehicle_odometry subscriber
             vehicle_odometry_sub_ = this->create_subscription<px4_msgs::msg::VehicleOdometry>(
-                "fmu/vehicle_odometry/out", 10, std::bind(&OdometryPublisher::vehicle_odometry_callback, this, _1));
+                "fmu/out/vehicle_odometry", 10, std::bind(&OdometryPublisher::vehicle_odometry_callback, this, _1));
         }
 
-        // Create VehicleVisualOdometry publisher to PX4
-        publisher_ = this->create_publisher<px4_msgs::msg::VehicleVisualOdometry>("fmu/vehicle_visual_odometry/in", 10);
+        // Create VehicleOdometry publisher to PX4
+        publisher_ = this->create_publisher<px4_msgs::msg::VehicleOdometry>("fmu/in/vehicle_visual_odometry", 10);
 
-        // get common timestamp
-        timesync_sub_ = this->create_subscription<px4_msgs::msg::Timesync>("fmu/timesync/out", 10,
-                                                                           [this](const px4_msgs::msg::Timesync::UniquePtr msg)
-                                                                           {
-                                                                               timestamp_.store(msg->timestamp);
-                                                                           });
+        // // get common timestamp
+        // timesync_sub_ = this->create_subscription<px4_msgs::msg::Timesync>("fmu/timesync/out", 10,
+        //                                                                    [this](const px4_msgs::msg::Timesync::UniquePtr msg)
+        //                                                                    {
+        //                                                                        timestamp_.store(msg->timestamp);
+        //                                                                    });
 
         // Create subscription to tf
         subscription_ = this->create_subscription<tf2_msgs::msg::TFMessage>(
@@ -810,12 +807,12 @@ private:
 
     // Declare private variables
     rclcpp::TimerBase::SharedPtr timer_;
-    rclcpp::Publisher<px4_msgs::msg::VehicleVisualOdometry>::SharedPtr publisher_;
+    rclcpp::Publisher<px4_msgs::msg::VehicleOdometry>::SharedPtr publisher_;
     rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr vehicle_odometry_sub_;
-    rclcpp::Subscription<px4_msgs::msg::Timesync>::SharedPtr timesync_sub_;
+    //rclcpp::Subscription<px4_msgs::msg::Timesync>::SharedPtr timesync_sub_;
     rclcpp::Subscription<tf2_msgs::msg::TFMessage>::SharedPtr subscription_;
 
-    std::atomic<uint64_t> timestamp_; //!< common synced timestamped with PX4
+    //std::atomic<uint64_t> timestamp_; //!< common synced timestamped with PX4
 
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_drone_broadcaster_;
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_ekf_drone_broadcaster_;
@@ -845,7 +842,7 @@ private:
     int msgs_count_, msgs_count_old;
     int time_start_, time_count_;
 
-    px4_msgs::msg::VehicleVisualOdometry msg;
+    px4_msgs::msg::VehicleOdometry msg;
 
     tf2::Quaternion quat_cam_to_body_x, quat_cam_to_body_y, quat_cam_to_body_z;
     tf2::Quaternion quat_body; // from apriltag-frame to body-frame
