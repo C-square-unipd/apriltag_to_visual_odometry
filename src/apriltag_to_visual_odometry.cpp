@@ -171,15 +171,22 @@ public:
         quat_cam_to_body_y.setRPY(0, pitch_cam_, 0);
         quat_cam_to_body_z.setRPY(0, 0, yaw_cam_);
 
+
+
+
         if (graphics_on_)
         {
             // Initialize the transform broadcaster
             tf_drone_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
             tf_ekf_drone_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
+            // Definition of a compatible qos profile with uXRCEClient publisher
+            rmw_qos_profile_t qos_profile = rmw_qos_profile_sensor_data;
+            auto qos = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 5), qos_profile);
+
             // vehicle_odometry subscriber
             vehicle_odometry_sub_ = this->create_subscription<px4_msgs::msg::VehicleOdometry>(
-                "fmu/out/vehicle_odometry", 10, std::bind(&OdometryPublisher::vehicle_odometry_callback, this, _1));
+                "fmu/out/vehicle_odometry", qos, std::bind(&OdometryPublisher::vehicle_odometry_callback, this, _1));
         }
 
         // Create VehicleOdometry publisher to PX4
