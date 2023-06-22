@@ -1,6 +1,6 @@
 apriltag_to_visual_odometry:
     ros__parameters:
-        debug: false    # To see more feedback on the terminal
+        debug: true    # To see more feedback on the terminal
         graphics_on: true   # To see the apriltag-map, position estimated from Apriltag(drone) and position estim>
         #Camera parameters
         # camera_frame: "camera_color_optical_frame" # ***HR01***
@@ -14,15 +14,19 @@ apriltag_to_visual_odometry:
         offset_camera_body: [ 0, -0.105, 0 ]       # [m] ***QR01***
         offset_body_camera: [ 0.105, 0, 0 ]       # [m]  ***QR01***
 
+        # averaging parameters
+        chordal_averaging: false
+        frame_weight : [1, 4, 16, 64]
+        static_weighting : false
+
         # filtering parameters
-        just_bigger_one: false          # consider only the bigger frame 
-        euc_dist_filter: false          # compute euclidean distance between a frame location and the past pose to delete the outliers
-        iqr_filter: true                # weighted iqr filter to delete the outliers
-        just_two_size: false           # consider only the two bigger sizes of frames seen 
+        just_bigger_one: false          # consider only the bigger frame
+        outliers_filter_choice: 3       # choose the outliers removing algorithm (0 = None, 1 = Two Bigger Sizes only, 2 = Euclidean distance,           
+                                        # 3 = Weighted Interquartiles Range, 4 = distance from Mean, 5 = distance from Median)
         euc_dist_max: 0.05             # euclidean distance limit for deleting outliers
         euc_dist_to_increase: 0.01     # increase the euclidean distance limit if too frames are deleted
         euc_outlier_ratio:  0.3        # ratio between the number of frames that have not been deleted and all the frames seen
-        fir: true                
+        fir: 2                         # FIR filter mode (0: disabled, 1: normal FIR, 2: EKF FIR)                
         fir_weight: [1, 1, 1, 1, 1]
 
         #Specify the apriltag_map. Example:
