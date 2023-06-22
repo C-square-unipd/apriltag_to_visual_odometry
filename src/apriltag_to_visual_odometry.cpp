@@ -1102,6 +1102,7 @@ private:
 
     geometry_msgs::msg::TransformStamped tf_ekf_drone;
     std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> transforms;
+    std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> ekf_transforms;
 
     // For a better visualization create two home one with z_up (home_rviz) and one with z_down (home_map)
     std::string home_map_frame_ = "home_map";   // z_down
