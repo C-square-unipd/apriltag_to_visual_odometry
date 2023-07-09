@@ -1,7 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <tf2_ros/static_transform_broadcaster.h>
 #include <tf2_ros/transform_broadcaster.h>
-
 #include <tf2/LinearMath/Quaternion.h>
 #include <px4_msgs/msg/vehicle_visual_odometry.hpp>
 #include <px4_msgs/msg/vehicle_odometry.hpp>
@@ -85,7 +84,7 @@ public:
         // averaging parameters
         use_chordal_avg_ = declare_parameter<bool>("chordal_averaging", false);
         frame_weight_ = declare_parameter<std::vector<int64_t>>("frame_weight", std::vector<int64_t>{1, 4, 16, 64});
-        use_static_weighting_ = declare_parameter<bool>("static_weighting", false);
+        use_dynamic_weighting_ = declare_parameter<bool>("dynamic_weighting", false);
 
         // filtering parameters
         just_bigger_one_ = declare_parameter<bool>("just_bigger_one", false);
@@ -184,7 +183,7 @@ public:
                       << "Consider only the bigger frame: " << just_bigger_one_ << std::endl
                       << "Outliers filter method: " << outliers_filter_names[static_cast<int>(filter_choice)] << std::endl
                       << "Using chordal averaging: " << use_chordal_avg_ << std::endl
-                      << "Using static weighting: " << use_static_weighting_ << std::endl
+                      << "Using dynamic weighting: " << use_dynamic_weighting_ << std::endl
                       << "Final FIR: " << fir_methods_names[static_cast<int>(fir_choice)] << std::endl
                       << "------------------------------------------------------\n"
                       << std::endl;
@@ -293,7 +292,9 @@ private:
         // Send the transformation
         tf_ekf_drone_broadcaster_->sendTransform(tf_ekf_drone);
 
-        // push back  in the old EFKs tuple
+        if(fir_choice == FirMethod::EKF)
+        {
+            // push back in the old EFKs tuple
         ekf_transforms.push_back(std::make_tuple(
             tf_ekf_drone.transform.rotation.x,
             tf_ekf_drone.transform.rotation.y,
@@ -308,6 +309,8 @@ private:
         // erase the oldest if the tuple is complete
         if (static_cast<int>(ekf_transforms.size()) >= static_cast<int>(fir_weight_.size()))
             ekf_transforms.erase(ekf_transforms.begin());
+        }
+
     }
 
     // retrieve the frame weight given its ID
@@ -460,6 +463,91 @@ private:
 
     void interquartiles_filter(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
     {
+        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered;
+        int t_size = static_cast<int>(t.size());
+        int tot_weight = 0;
+        int index, index_min, index_max, sum;
+        double min_margins[3] = {0, 0, 0};
+        double max_margins[3] = {0, 0, 0};
+
+        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> v_tuple[3] = {t, t, t};
+        std::sort(v_tuple[0].begin(), v_tuple[0].end(), TupleLess<4>());
+        std::sort(v_tuple[1].begin(), v_tuple[1].end(), TupleLess<5>());
+        std::sort(v_tuple[2].begin(), v_tuple[2].end(), TupleLess<6>());
+
+        // Calculate the sum of all_weight
+        for (int i = 0; i < t_size; i++)
+        {
+            tot_weight += std::get<7>(v_tuple[0][i]);
+        }
+
+        // Compute the weighted interquartile ranges for X component
+        sum = 0;
+        index = 0;
+        index_min = -1;
+        index_max = -1;
+        while (sum < (7 / 8) * tot_weight)
+        {
+            sum += std::get<7>(v_tuple[0][index]);
+            if (index_min == -1 && sum >= (tot_weight / 8))
+                index_min = index;
+            else if (index_max == -1 && sum >= (7 / 8) * tot_weight)
+                index_max = index;
+            index++;
+        }
+        min_margins[0] = std::get<(4)>(v_tuple[0][index_min]);
+        max_margins[0] = std::get<(4)>(v_tuple[0][index_max]);
+
+        // Compute the weighted interquartile ranges for Y component
+        sum = 0;
+        index = 0;
+        index_min = -1;
+        index_max = -1;
+        while (sum < (7 / 8) * tot_weight)
+        {
+            sum += std::get<7>(v_tuple[1][index]);
+            if (index_min == -1 && sum >= (tot_weight / 8))
+                index_min = index;
+            else if (index_max == -1 && sum >= (7 / 8) * tot_weight)
+                index_max = index;
+            index++;
+        }
+        min_margins[1] = std::get<(5)>(v_tuple[1][index_min]);
+        max_margins[1] = std::get<(5)>(v_tuple[1][index_max]);
+
+        // Compute the weighted interquartile ranges for Z component
+        sum = 0;
+        index = 0;
+        index_min = -1;
+        index_max = -1;
+        while (sum < (7 / 8) * tot_weight)
+        {
+            sum += std::get<7>(v_tuple[6][index]);
+            if (index_min == -1 && sum >= (tot_weight / 8))
+                index_min = index;
+            else if (index_max == -1 && sum >= (7 / 8) * tot_weight)
+                index_max = index;
+            index++;
+        }
+        min_margins[6] = std::get<(6)>(v_tuple[2][index_min]);
+        max_margins[6] = std::get<(6)>(v_tuple[2][index_max]);
+
+        // Keep only trensformations that lie in the acceptable range for each component
+        for (int i = 0; i < t_size; i++)
+        {
+            if (std::get<4>(t[i]) > min_margins[0] && std::get<4>(t[i]) < max_margins[0] && std::get<5>(t[i]) > min_margins[1] && std::get<5>(t[i]) < max_margins[1] && std::get<6>(t[i]) > min_margins[2] && std::get<6>(t[i]) < max_margins[2])
+            {
+                t_filtered.push_back(t[i]);
+            }
+        }
+
+        if (static_cast<int>(t_filtered.size()) > 0)
+            t = t_filtered;
+    }
+
+    /* OLD VERSION
+    void interquartiles_filter(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
+    {
         std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered_med;
         int sum = 0;
         int all_weight = 0;
@@ -529,6 +617,7 @@ private:
             t = t_filtered_med;
         }
     }
+    */
 
     void euclidean_distance(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
     {
@@ -721,7 +810,6 @@ private:
     {
         if (ekf_transforms.size() == (fir_weight_.size()) - 1)
         {
-            std::cout << "YES WE FIR!!" << std::endl;
             ekf_transforms.push_back(std::make_tuple(quat_body.x(),
                                                      quat_body.y(),
                                                      quat_body.z(),
@@ -820,7 +908,6 @@ private:
     void tf_callback(tf2_msgs::msg::TFMessage::ConstSharedPtr tf_msg)
     {
         rclcpp::Time startAlgo = this->now();
-
         const tf2_msgs::msg::TFMessage &msg_in = *tf_msg;
 
         if (msg_in.transforms.size() != 0)
@@ -874,10 +961,10 @@ private:
                         int child_id_num = std::stoi(ts_in.child_frame_id.substr(5, 4));
                         tf2::Vector3 off_i = get_offset(child_id_num);
 
-                        if (use_static_weighting_)
-                            weight = get_static_weight(child_id_num);
-                        else
+                        if (use_dynamic_weighting_)
                             weight = get_dynamic_weight(child_id_num, ts_in.transform.translation.x, ts_in.transform.translation.y, ts_in.transform.translation.z);
+                        else
+                            weight = get_static_weight(child_id_num);
 
                         // push back in the tuple vector
                         tuple_in.push_back(std::make_tuple(
@@ -990,8 +1077,8 @@ private:
                 long vio_arrival_time = static_cast<long>(t_lower_id.header.stamp.sec) * 1000000 + static_cast<long>(t_lower_id.header.stamp.nanosec) / 1000;
                 long elapsed_time = (static_cast<long>(now.nanoseconds()) - static_cast<long>(startAlgo.nanoseconds())) / 1000;
                 msg.timestamp = vio_arrival_time + elapsed_time;
-                // msg.timestamp_sample = startAlgo.nanoseconds() / 1000;
-                msg.timestamp_sample = msg.timestamp;
+                //msg.timestamp_sample = startAlgo.nanoseconds() / 1000;
+                msg.timestamp_sample = vio_arrival_time;
 
                 /*if (debug_)
                 {
@@ -1110,7 +1197,7 @@ private:
     std::string drone_frame_estimated_ = "drone";
 
     // Parameter from yaml file
-    bool debug_, graphics_on_, just_bigger_one_, euc_use_ekf_, use_chordal_avg_, use_static_weighting_;
+    bool debug_, graphics_on_, just_bigger_one_, euc_use_ekf_, use_chordal_avg_, use_dynamic_weighting_;
     OutliersFilterMethod filter_choice;
     FirMethod fir_choice;
     std::string fromFrameRel_;
