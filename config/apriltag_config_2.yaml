@@ -21,13 +21,13 @@ apriltag_to_visual_odometry:
 
         # filtering parameters
         just_bigger_one: false          # consider only the bigger frame
-        limit_to_big_sizes: 0           # choose whether to consider just one or two biggest size of markers among the set of markers seen (0 = disabled)
-        outliers_filter_choice: 5       # choose the outliers removing algorithm (0 = None, 1 = Two Bigger Sizes only, 2 = Euclidean distance,           
+        limit_to_big_sizes: 1           # choose whether to consider just one or two biggest size of markers among the set of markers seen (0 = disabled)
+        outliers_filter_choice: 0       # choose the outliers removing algorithm (0 = None, 1 = Two Bigger Sizes only, 2 = Euclidean distance,           
                                         # 3 = Weighted Interquartiles Range, 4 = distance from Mean, 5 = distance from Median)
         euc_dist_max: 0.05             # euclidean distance limit for deleting outliers
         euc_dist_to_increase: 0.01     # increase the euclidean distance limit if too frames are deleted
         euc_outlier_ratio:  0.3        # ratio between the number of frames that have not been deleted and all the frames seen
-        fir: 0                         # FIR filter mode (0: disabled, 1: normal FIR, 2: EKF FIR)                
+        fir: 1                         # FIR filter mode (0: disabled, 1: normal FIR, 2: EKF FIR)                
         fir_weight: [1, 2, 2, 3, 3]
 
         #Specify the apriltag_map. Example:

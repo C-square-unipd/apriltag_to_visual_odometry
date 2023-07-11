@@ -46,6 +46,13 @@ enum FirMethod
     EKF
 };
 
+enum LimitToSize
+{
+    Deactivated,
+    One,
+    Two
+};
+
 // Odometry publisher, "Node" subclass
 class OdometryPublisher : public rclcpp::Node
 {
@@ -88,6 +95,7 @@ public:
 
         // filtering parameters
         just_bigger_one_ = declare_parameter<bool>("just_bigger_one", false);
+        limit_to_big_sizes = static_cast<LimitToSize>(declare_parameter<int>("limit_to_big_sizes", 0));
         filter_choice = static_cast<OutliersFilterMethod>(declare_parameter<int>("outliers_filter_choice", 3));
         euc_dist_max = declare_parameter<double>("euc_dist_max", 0.05);
         euc_outlier_ratio = declare_parameter<double>("euc_outlier_ratio", 0.2);
@@ -182,6 +190,7 @@ public:
             std::cout << "------------------FILTERS-PARAMETER-------------------\n"
                       << "Consider only the bigger frame: " << just_bigger_one_ << std::endl
                       << "Outliers filter method: " << outliers_filter_names[static_cast<int>(filter_choice)] << std::endl
+                      << "Limit to bigger sizes: " << size_limiter_names[static_cast<int>(limit_to_big_sizes)] << std::endl
                       << "Using chordal averaging: " << use_chordal_avg_ << std::endl
                       << "Using dynamic weighting: " << use_dynamic_weighting_ << std::endl
                       << "Final FIR: " << fir_methods_names[static_cast<int>(fir_choice)] << std::endl
@@ -292,7 +301,7 @@ private:
         // Send the transformation
         tf_ekf_drone_broadcaster_->sendTransform(tf_ekf_drone);
 
-        if(fir_choice == FirMethod::EKF)
+        if (fir_choice == FirMethod::EKF)
         {
             // push back in the old EFKs tuple
         ekf_transforms.push_back(std::make_tuple(
@@ -310,7 +319,6 @@ private:
         if (static_cast<int>(ekf_transforms.size()) >= static_cast<int>(fir_weight_.size()))
             ekf_transforms.erase(ekf_transforms.begin());
         }
-
     }
 
     // retrieve the frame weight given its ID
@@ -461,12 +469,13 @@ private:
         t = t_filtered_two;
     }
 
+    // NEW VERSION
     void interquartiles_filter(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
     {
         std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered;
         int t_size = static_cast<int>(t.size());
-        int tot_weight = 0;
-        int index, index_min, index_max, sum;
+        float tot_weight = 0;
+        int index, index_min, index_max, w_sum;
         double min_margins[3] = {0, 0, 0};
         double max_margins[3] = {0, 0, 0};
 
@@ -482,16 +491,16 @@ private:
         }
 
         // Compute the weighted interquartile ranges for X component
-        sum = 0;
+        w_sum = 0;
         index = 0;
         index_min = -1;
         index_max = -1;
-        while (sum < (7 / 8) * tot_weight)
+        while (w_sum < (0.875 * tot_weight))
         {
-            sum += std::get<7>(v_tuple[0][index]);
-            if (index_min == -1 && sum >= (tot_weight / 8))
+            w_sum += std::get<7>(v_tuple[0][index]);
+            if (index_min == -1 && w_sum >= (tot_weight / 8))
                 index_min = index;
-            else if (index_max == -1 && sum >= (7 / 8) * tot_weight)
+            else if (index_max == -1 && w_sum >= 0.875 * tot_weight)
                 index_max = index;
             index++;
         }
@@ -499,16 +508,16 @@ private:
         max_margins[0] = std::get<(4)>(v_tuple[0][index_max]);
 
         // Compute the weighted interquartile ranges for Y component
-        sum = 0;
+        w_sum = 0;
         index = 0;
         index_min = -1;
         index_max = -1;
-        while (sum < (7 / 8) * tot_weight)
+        while (w_sum < (0.875 * tot_weight))
         {
-            sum += std::get<7>(v_tuple[1][index]);
-            if (index_min == -1 && sum >= (tot_weight / 8))
+            w_sum += std::get<7>(v_tuple[1][index]);
+            if (index_min == -1 && w_sum >= (tot_weight / 8))
                 index_min = index;
-            else if (index_max == -1 && sum >= (7 / 8) * tot_weight)
+            else if (index_max == -1 && w_sum >= 0.875 * tot_weight)
                 index_max = index;
             index++;
         }
@@ -516,21 +525,21 @@ private:
         max_margins[1] = std::get<(5)>(v_tuple[1][index_max]);
 
         // Compute the weighted interquartile ranges for Z component
-        sum = 0;
+        w_sum = 0;
         index = 0;
         index_min = -1;
         index_max = -1;
-        while (sum < (7 / 8) * tot_weight)
+        while (w_sum < (0.875 * tot_weight))
         {
-            sum += std::get<7>(v_tuple[6][index]);
-            if (index_min == -1 && sum >= (tot_weight / 8))
+            w_sum += std::get<7>(v_tuple[2][index]);
+            if (index_min == -1 && w_sum >= (tot_weight / 8))
                 index_min = index;
-            else if (index_max == -1 && sum >= (7 / 8) * tot_weight)
+            else if (index_max == -1 && w_sum >= 0.875 * tot_weight)
                 index_max = index;
             index++;
         }
-        min_margins[6] = std::get<(6)>(v_tuple[2][index_min]);
-        max_margins[6] = std::get<(6)>(v_tuple[2][index_max]);
+        min_margins[2] = std::get<(6)>(v_tuple[2][index_min]);
+        max_margins[2] = std::get<(6)>(v_tuple[2][index_max]);
 
         // Keep only trensformations that lie in the acceptable range for each component
         for (int i = 0; i < t_size; i++)
@@ -544,6 +553,79 @@ private:
         if (static_cast<int>(t_filtered.size()) > 0)
             t = t_filtered;
     }
+
+    // OLD VERSION
+    /* void interquartiles_filter(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
+    {
+        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered_med;
+        int sum = 0;
+        int all_weight = 0;
+        int t_size = static_cast<int>(t.size());
+        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> v_tuple[3] = {t, t, t};
+
+        std::sort(v_tuple[0].begin(), v_tuple[0].end(), TupleLess<4>());
+        std::sort(v_tuple[1].begin(), v_tuple[1].end(), TupleLess<5>());
+        std::sort(v_tuple[2].begin(), v_tuple[2].end(), TupleLess<6>());
+
+        // Calculate the sum of all_weight
+        for (int i = 0; i < t_size; i++)
+        {
+            all_weight += std::get<7>(v_tuple[0][i]);
+        }
+
+        // Compute the weighted median and eraser the outliers for x y z
+        for (int index = 0; index < 3; index++)
+        {
+            sum = 0;
+            int i = 0;
+            int size = static_cast<int>(t.size());
+            while (i != size)
+            {
+                sum += std::get<7>(v_tuple[index][i]);
+                if ((sum < all_weight / 8) || (sum > all_weight * 7 / 8))
+                {
+                    v_tuple[index].erase(v_tuple[index].begin() + i);
+                    size--;
+                }
+                else
+                {
+                    i++;
+                }
+            }
+        }
+
+        t_filtered_med.clear();
+        bool zero_tuple = true;
+
+        // Keep only frames that appears in all 3 tuples
+        int frame_i = 0;
+        for (int i = 0; i < static_cast<int>(v_tuple[0].size()); i++)
+        {
+            frame_i = std::get<8>(v_tuple[0][i]);
+
+            for (int j = 0; j < static_cast<int>(v_tuple[1].size()); j++)
+            {
+                if (std::get<8>(v_tuple[1][j]) == frame_i)
+                {
+                    for (int k = 0; k < static_cast<int>(v_tuple[2].size()); k++)
+                    {
+                        if (std::get<8>(v_tuple[2][k]) == frame_i)
+                        {
+                            t_filtered_med.push_back(v_tuple[0][i]);
+                            zero_tuple = false;
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (!zero_tuple)
+        {
+            t = t_filtered_med;
+        }
+    } */
 
     void euclidean_distance(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
     {
@@ -702,6 +784,59 @@ private:
             t = t_filtered;
     }
 
+    void keep_bigger_size_filter(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t, bool take_two)
+    {
+        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_XL;
+        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_L;
+        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_M;
+        std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_S;
+        int t_size = static_cast<int>(t.size());
+        int frame_id;
+
+        for (int i = 0; i < t_size; i++)
+        {
+            frame_id = std::get<8>(t[i]);
+            if (frame_id <= 99)
+                t_XL.push_back(t[i]);
+            else if (frame_id >= 100 && frame_id <= 399)
+                t_L.push_back(t[i]);
+            else if (frame_id >= 400 && frame_id <= 999)
+                t_M.push_back(t[i]);
+            else
+                t_S.push_back(t[i]);
+        }
+
+        if (static_cast<int>(t_XL.size()) > 0)
+        {
+            t = t_XL;
+            if (take_two)
+            {
+                t.reserve(t.size() + t_L.size());
+                t.insert(t.end(), t_L.begin(), t_L.end());
+            }
+        }
+        else if (static_cast<int>(t_L.size()) > 0)
+        {
+            t = t_L;
+            if (take_two)
+            {
+                t.reserve(t.size() + t_M.size());
+                t.insert(t.end(), t_M.begin(), t_M.end());
+            }
+        }
+        else if (static_cast<int>(t_M.size()) > 0)
+        {
+            t = t_M;
+            if (take_two)
+            {
+                t.reserve(t.size() + t_S.size());
+                t.insert(t.end(), t_S.begin(), t_S.end());
+            }
+        }
+        else
+            t = t_S;
+    }
+
     // moving average filter
     void fir()
     {
@@ -834,6 +969,8 @@ private:
     void tf_callback(tf2_msgs::msg::TFMessage::ConstSharedPtr tf_msg)
     {
         rclcpp::Time startAlgo = this->now();
+        rclcpp::Time stop;
+        rclcpp::Time start;
         const tf2_msgs::msg::TFMessage &msg_in = *tf_msg;
 
         if (msg_in.transforms.size() != 0)
@@ -859,6 +996,15 @@ private:
                 if (just_bigger_one_)
                 {
                     int lower_frame_ID = std::stoi(t_lower_id.child_frame_id.substr(5, 4));
+
+                    // checking if the marker ID is registered inside the tags map
+                    if (!std::binary_search(tag_ids_.begin(), tag_ids_.end(), lower_frame_ID))
+                    {
+                        // no available tranformations left
+                        std::cout << "** Warning: invalid transformation data from tf_vio topic, message discarded.";
+                        return;
+                    }
+
                     camera_origin[0] = t_lower_id.transform.translation.x;
                     camera_origin[1] = t_lower_id.transform.translation.y;
                     camera_origin[2] = t_lower_id.transform.translation.z;
@@ -885,6 +1031,11 @@ private:
                     {
                         geometry_msgs::msg::TransformStamped ts_in = msg_in.transforms[i];
                         int child_id_num = std::stoi(ts_in.child_frame_id.substr(5, 4));
+
+                        // checking if the marker ID is registered inside the tags map
+                        if (!std::binary_search(tag_ids_.begin(), tag_ids_.end(), child_id_num))
+                            continue;
+
                         tf2::Vector3 off_i = get_offset(child_id_num);
 
                         if (use_dynamic_weighting_)
@@ -906,6 +1057,13 @@ private:
                     }
                     t_size = static_cast<int>(tuple_in.size());
 
+                    if (t_size == 0)
+                    {
+                        // no available tranformations left
+                        std::cout << "** Warning: invalid transformation data from tf_vio topic, message discarded.";
+                        return;
+                    }
+
                     // Print the received transforms
                     if (debug_)
                     {
@@ -915,6 +1073,14 @@ private:
                     }
 
                     // auto start = high_resolution_clock::now();
+                    start = this->now();
+                    if (limit_to_big_sizes != LimitToSize::One)
+                        keep_bigger_size_filter(tuple_in, false);
+                    else if (limit_to_big_sizes != LimitToSize::Two)
+                    {
+                        keep_bigger_size_filter(tuple_in, true);
+                    }
+                    
                     if (t_size > 2) // filter outliers only if there are at least 3 tranformations
                     {
                         switch (filter_choice)
@@ -942,6 +1108,7 @@ private:
                             break;
                         }
                     }
+                    stop = this->now();
                     // auto stop = high_resolution_clock::now();
                     // auto duration = duration_cast<microseconds>(stop - start);
                     t_f_size = static_cast<int>(tuple_in.size());
@@ -953,7 +1120,7 @@ private:
                         print_transformations(tuple_in);
                     }
 
-                    //auto start = high_resolution_clock::now();
+                    // auto start = high_resolution_clock::now();
                     if (t_f_size > 1)
                     {
                         // Convert tuple to matrices and correct the quaternion signs, also correct quaternion signs if Quaternion Averaging is selected
@@ -972,15 +1139,16 @@ private:
                         trans_average = {std::get<4>(tuple_in[0]), std::get<5>(tuple_in[0]), std::get<6>(tuple_in[0])};
                     }
 
-                    //auto stop = high_resolution_clock::now();
-                    //auto duration = duration_cast<microseconds>(stop - start);
+                    // auto stop = high_resolution_clock::now();
+                    // auto duration = duration_cast<microseconds>(stop - start);
 
                     // print algorithm execution time to file
                     /*if (debug_)
                     {
                         std::ofstream log_stream;
                         log_stream.open(log_file_path, std::ios::out | std::ios::app);
-                        log_stream << duration.count() << std::endl;
+                        //log_stream << duration.count() << " " << t_f_size << std::endl;
+                        log_stream << t_size << " " << t_f_size << std::endl;
                         log_stream.close();
                     }*/
 
@@ -1003,14 +1171,15 @@ private:
                 long vio_arrival_time = static_cast<long>(t_lower_id.header.stamp.sec) * 1000000 + static_cast<long>(t_lower_id.header.stamp.nanosec) / 1000;
                 long elapsed_time = (static_cast<long>(now.nanoseconds()) - static_cast<long>(startAlgo.nanoseconds())) / 1000;
                 msg.timestamp = vio_arrival_time + elapsed_time;
-                //msg.timestamp_sample = startAlgo.nanoseconds() / 1000;
+                // msg.timestamp_sample = startAlgo.nanoseconds() / 1000;
                 msg.timestamp_sample = vio_arrival_time;
 
                 /*if (debug_)
                 {
+                    elapsed_time = (static_cast<long>(stop.nanoseconds()) - static_cast<long>(start.nanoseconds())) / 1000;
                     std::ofstream log_stream;
                     log_stream.open(log_file_path, std::ios::out | std::ios::app);
-                    log_stream << vio_arrival_time + elapsed_time << " " << t_size << " " << t_f_size << std::endl;
+                    log_stream << elapsed_time << std::endl;
                     log_stream.close();
                 }*/
 
@@ -1126,6 +1295,7 @@ private:
     bool debug_, graphics_on_, just_bigger_one_, euc_use_ekf_, use_chordal_avg_, use_dynamic_weighting_;
     OutliersFilterMethod filter_choice;
     FirMethod fir_choice;
+    LimitToSize limit_to_big_sizes;
     std::string fromFrameRel_;
     float roll_cam_, pitch_cam_, yaw_cam_;                           //[deg]
     tf2::Vector3 offset_camera_body_vect_, offset_body_camera_vect_; //[m]
@@ -1158,6 +1328,7 @@ private:
     // std::string log_file_path = "//media//simone//8GBGREEN//bags//tags_log";
     std::vector<std::string> outliers_filter_names = {"None", "Two bigger size", "Euclidean distance", "Interquartiles", "Distance from Mean", "distance from Median"};
     std::vector<std::string> fir_methods_names = {"Disabled", "Standard", "EKF"};
+    std::vector<std::string> size_limiter_names = {"Disabled", "One", "Two"};
 };
 
 int main(int argc, char *argv[])

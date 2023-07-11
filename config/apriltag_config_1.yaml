@@ -20,9 +20,9 @@ apriltag_to_visual_odometry:
         dynamic_weighting : false
 
         # filtering parameters
-        just_bigger_one: false          # consider only the bigger frame
+        just_bigger_one: true          # consider only the bigger frame
         limit_to_big_sizes: 0           # choose whether to consider just one or two biggest size of markers among the set of markers seen (0 = disabled)
-        outliers_filter_choice: 5       # choose the outliers removing algorithm (0 = None, 1 = Two Bigger Sizes only, 2 = Euclidean distance,           
+        outliers_filter_choice: 0       # choose the outliers removing algorithm (0 = None, 1 = Two Bigger Sizes only, 2 = Euclidean distance,           
                                         # 3 = Weighted Interquartiles Range, 4 = distance from Mean, 5 = distance from Median)
         euc_dist_max: 0.05             # euclidean distance limit for deleting outliers
         euc_dist_to_increase: 0.01     # increase the euclidean distance limit if too frames are deleted
