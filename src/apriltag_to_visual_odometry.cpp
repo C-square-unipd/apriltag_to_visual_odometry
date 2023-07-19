@@ -36,7 +36,8 @@ enum OutliersFilterMethod
     Euclidean,
     Interquartiles,
     Mean,
-    Median
+    Median,
+    Interquartiles2
 };
 
 enum FirMethod
@@ -96,7 +97,7 @@ public:
         // filtering parameters
         just_bigger_one_ = declare_parameter<bool>("just_bigger_one", false);
         limit_to_big_sizes = static_cast<LimitToSize>(declare_parameter<int>("limit_to_big_sizes", 0));
-        filter_choice = static_cast<OutliersFilterMethod>(declare_parameter<int>("outliers_filter_choice", 3));
+        filter_choice = static_cast<OutliersFilterMethod>(declare_parameter<int>("outliers_filter_choice", 6));
         euc_dist_max = declare_parameter<double>("euc_dist_max", 0.05);
         euc_outlier_ratio = declare_parameter<double>("euc_outlier_ratio", 0.2);
         euc_dist_to_increase = declare_parameter<double>("euc_dist_to_increase", 0.01);
@@ -198,8 +199,8 @@ public:
                       << std::endl;
 
             // to clear the log text file
-            //std::ofstream log_stream(log_file_path, std::ios::out | std::ios::trunc);
-            //log_stream << "";
+            // std::ofstream log_stream(log_file_path, std::ios::out | std::ios::trunc);
+            // log_stream << "";
         }
         // Definition of the elementary quaternion camera to body
         //  From (roll_angle, pitch_angle, yaw_angle) to quaternion
@@ -470,7 +471,7 @@ private:
     }
 
     // NEW VERSION
-    void interquartiles_filter(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
+    void interquartiles_filter2(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
     {
         std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered;
         int t_size = static_cast<int>(t.size());
@@ -544,7 +545,7 @@ private:
         // Keep only trensformations that lie in the acceptable range for each component
         for (int i = 0; i < t_size; i++)
         {
-            if (std::get<4>(t[i]) > min_margins[0] && std::get<4>(t[i]) < max_margins[0] && std::get<5>(t[i]) > min_margins[1] && std::get<5>(t[i]) < max_margins[1] && std::get<6>(t[i]) > min_margins[2] && std::get<6>(t[i]) < max_margins[2])
+            if (std::get<4>(t[i]) >= min_margins[0] && std::get<4>(t[i]) <= max_margins[0] && std::get<5>(t[i]) >= min_margins[1] && std::get<5>(t[i]) <= max_margins[1] && std::get<6>(t[i]) >= min_margins[2] && std::get<6>(t[i]) <= max_margins[2])
             {
                 t_filtered.push_back(t[i]);
             }
@@ -555,7 +556,7 @@ private:
     }
 
     // OLD VERSION
-    /* void interquartiles_filter(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
+    void interquartiles_filter(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
     {
         std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> t_filtered_med;
         int sum = 0;
@@ -625,7 +626,7 @@ private:
         {
             t = t_filtered_med;
         }
-    } */
+    }
 
     void euclidean_distance(std::vector<std::tuple<double, double, double, double, double, double, double, int, int>> &t)
     {
@@ -1074,9 +1075,9 @@ private:
 
                     // auto start = high_resolution_clock::now();
                     start = this->now();
-                    if (limit_to_big_sizes != LimitToSize::One)
+                    if (limit_to_big_sizes == LimitToSize::One)
                         keep_bigger_size_filter(tuple_in, false);
-                    else if (limit_to_big_sizes != LimitToSize::Two)
+                    else if (limit_to_big_sizes == LimitToSize::Two)
                     {
                         keep_bigger_size_filter(tuple_in, true);
                     }
@@ -1101,6 +1102,9 @@ private:
                             break;
                         case OutliersFilterMethod::Median: // Erase the outliers far from the median
                             median_distance_filter(tuple_in);
+                            break;
+                        case OutliersFilterMethod::Interquartiles2:
+                            interquartiles_filter2(tuple_in);
                             break;
                         default:
                             std::cout << "ERROR: invalid outliers filter selection, restoring default choice (Interquartiles)." << std::endl;
@@ -1325,8 +1329,8 @@ private:
 
     std::string package_share_directory = ament_index_cpp::get_package_share_directory("apriltag_to_visual_odometry");
     // std::string log_file_path = package_share_directory + "/../../../../log/execution_time.txt";
-    // std::string log_file_path = "//media//simone//8GBGREEN//bags//tags_log";
-    std::vector<std::string> outliers_filter_names = {"None", "Two bigger size", "Euclidean distance", "Interquartiles", "Distance from Mean", "distance from Median"};
+    //  std::string log_file_path = "//media//simone//8GBGREEN//bags//tags_log";
+    std::vector<std::string> outliers_filter_names = {"None", "Two bigger size", "Euclidean distance", "Interquartiles", "Distance from Mean", "distance from Median", "New interquartiles"};
     std::vector<std::string> fir_methods_names = {"Disabled", "Standard", "EKF"};
     std::vector<std::string> size_limiter_names = {"Disabled", "One", "Two"};
 };
