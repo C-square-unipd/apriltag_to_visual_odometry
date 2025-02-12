@@ -2,7 +2,7 @@
 #include <tf2_ros/static_transform_broadcaster.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2/LinearMath/Quaternion.h>
-#include <px4_msgs/msg/vehicle_visual_odometry.hpp>
+//#include <px4_msgs/msg/vehicle_visual_odometry.hpp>
 #include <px4_msgs/msg/vehicle_odometry.hpp>
 // #include <px4_msgs/msg/timesync.hpp>
 #include <std_msgs/msg/string.hpp>
@@ -220,7 +220,7 @@ public:
         }
 
         // Create VehicleVisualOdometry publisher to PX4
-        publisher_ = this->create_publisher<px4_msgs::msg::VehicleVisualOdometry>("fmu/in/vehicle_visual_odometry", 10);
+        publisher_ = this->create_publisher<px4_msgs::msg::VehicleOdometry>("fmu/in/vehicle_visual_odometry", 10);
 
         // get common timestamp
         // timesync_sub_ = this->create_subscription<px4_msgs::msg::Timesync>("fmu/timesync/out", 10,
@@ -1275,7 +1275,7 @@ private:
 
     // Declare private variables
     rclcpp::TimerBase::SharedPtr timer_;
-    rclcpp::Publisher<px4_msgs::msg::VehicleVisualOdometry>::SharedPtr publisher_;
+    rclcpp::Publisher<px4_msgs::msg::VehicleOdometry>::SharedPtr publisher_;
     rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr vehicle_odometry_sub_;
     // rclcpp::Subscription<px4_msgs::msg::Timesync>::SharedPtr timesync_sub_;
     rclcpp::Subscription<tf2_msgs::msg::TFMessage>::SharedPtr subscription_;
@@ -1315,7 +1315,7 @@ private:
     int time_start_, time_count_;
     int t_size, t_f_size; // keep in memory the number of transformation before and after outliers filtering
 
-    px4_msgs::msg::VehicleVisualOdometry msg;
+    px4_msgs::msg::VehicleOdometry msg;
 
     tf2::Quaternion quat_cam_to_body_x, quat_cam_to_body_y, quat_cam_to_body_z;
     tf2::Quaternion quat_body; // from apriltag-frame to body-frame
